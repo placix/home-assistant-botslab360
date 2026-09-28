@@ -2,34 +2,65 @@
   "config": {
     "abort": {
       "already_configured": "This account is already configured.",
+      "invalid_auth": "The authentication flow is no longer valid. Start again.",
       "reauth_successful": "Reauthentication was successful."
     },
     "error": {
       "cannot_connect": "Failed to connect.",
       "invalid_auth": "Authentication failed.",
+      "invalid_captcha": "The verification code was not accepted.",
       "no_devices": "No Botslab devices were found for this account.",
       "reauth_wrong_account": "The credentials belong to a different account."
     },
     "step": {
+      "captcha": {
+        "data": {
+          "captcha_code": "Verification code"
+        },
+        "description": "Enter the code shown below.\n\n![Verification image]({captcha_image})",
+        "title": "Complete verification"
+      },
       "reauth_confirm": {
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        },
+        "description": "Enter the email address and password for this account.",
+        "title": "Reauthenticate Botslab 360"
+      },
+      "reauth_legacy": {
         "data": {
           "q": "Q",
           "t": "T"
         },
-        "description": "Enter new Q and T credentials for this account.",
+        "description": "Enter new Q and T credentials for this legacy account entry.",
         "title": "Reauthenticate Botslab 360"
       },
       "user": {
         "data": {
-          "q": "Q",
-          "t": "T"
+          "backend": "Account type",
+          "email": "Email",
+          "password": "Password"
         },
-        "description": "Enter the Q and T credentials for your Botslab account.",
+        "description": "Select your account type and enter its email address and password.",
         "title": "Connect to Botslab 360"
       }
     }
   },
+  "selector": {
+    "auth_backend": {
+      "options": {
+        "botslab": "Botslab / CloudSmart",
+        "robot360": "360Robot"
+      }
+    }
+  },
   "entity": {
+    "camera": {
+      "map": {
+        "name": "Map"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Battery"

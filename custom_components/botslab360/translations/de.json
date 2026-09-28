@@ -2,34 +2,65 @@
   "config": {
     "abort": {
       "already_configured": "Dieses Konto ist bereits konfiguriert.",
+      "invalid_auth": "Der Authentifizierungsvorgang ist nicht mehr gültig. Starte ihn erneut.",
       "reauth_successful": "Die erneute Authentifizierung war erfolgreich."
     },
     "error": {
       "cannot_connect": "Verbindung fehlgeschlagen.",
       "invalid_auth": "Authentifizierung fehlgeschlagen.",
+      "invalid_captcha": "Der Bestätigungscode wurde nicht akzeptiert.",
       "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden.",
       "reauth_wrong_account": "Die Zugangsdaten gehören zu einem anderen Konto."
     },
     "step": {
+      "captcha": {
+        "data": {
+          "captcha_code": "Bestätigungscode"
+        },
+        "description": "Gib den unten angezeigten Code ein.\n\n![Bestätigungsbild]({captcha_image})",
+        "title": "Bestätigung abschließen"
+      },
       "reauth_confirm": {
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort"
+        },
+        "description": "Gib die E-Mail-Adresse und das Passwort für dieses Konto ein.",
+        "title": "Botslab 360 erneut authentifizieren"
+      },
+      "reauth_legacy": {
         "data": {
           "q": "Q",
           "t": "T"
         },
-        "description": "Gib neue Q- und T-Zugangsdaten für dieses Konto ein.",
+        "description": "Gib neue Q- und T-Zugangsdaten für diesen bestehenden Eintrag ein.",
         "title": "Botslab 360 erneut authentifizieren"
       },
       "user": {
         "data": {
-          "q": "Q",
-          "t": "T"
+          "backend": "Kontotyp",
+          "email": "E-Mail",
+          "password": "Passwort"
         },
-        "description": "Gib die Q- und T-Zugangsdaten deines Botslab-Kontos ein.",
+        "description": "Wähle den Kontotyp und gib E-Mail-Adresse und Passwort ein.",
         "title": "Mit Botslab 360 verbinden"
       }
     }
   },
+  "selector": {
+    "auth_backend": {
+      "options": {
+        "botslab": "Botslab / CloudSmart",
+        "robot360": "360Robot"
+      }
+    }
+  },
   "entity": {
+    "camera": {
+      "map": {
+        "name": "Karte"
+      }
+    },
     "sensor": {
       "battery": {
         "name": "Akku"
