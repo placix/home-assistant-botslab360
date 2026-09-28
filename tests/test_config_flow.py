@@ -1,6 +1,6 @@
 """Tests for the Botslab 360 config flow."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from botslab360 import ApiError, AuthenticationError
 from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_USER
@@ -36,9 +36,14 @@ async def test_successful_config_flow(hass, mock_client) -> None:
     assert selectors["q"].config["type"] == TextSelectorType.PASSWORD
     assert selectors["t"].config["type"] == TextSelectorType.PASSWORD
 
-    result = await hass.config_entries.flow.async_configure(
-        initial["flow_id"], TEST_CREDENTIALS
-    )
+    with patch(
+        "custom_components.botslab360.async_setup_entry",
+        new=AsyncMock(return_value=True),
+    ) as setup_entry_mock:
+        result = await hass.config_entries.flow.async_configure(
+            initial["flow_id"], TEST_CREDENTIALS
+        )
+        await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Test Robot"
@@ -48,6 +53,7 @@ async def test_successful_config_flow(hass, mock_client) -> None:
     mock_client.authenticate.assert_awaited_once()
     mock_client.get_devices.assert_awaited_once()
     mock_client.close.assert_awaited_once()
+    setup_entry_mock.assert_awaited_once()
 
 
 async def test_invalid_auth(hass, mock_client) -> None:

@@ -9,12 +9,8 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import pytest
 
-from custom_components.botslab360 import (
-    Botslab360RuntimeData,
-    async_setup_entry,
-    async_unload_entry,
-)
-from custom_components.botslab360.const import DOMAIN
+from custom_components.botslab360 import Botslab360RuntimeData
+from custom_components.botslab360.const import DOMAIN, PLATFORMS
 from custom_components.botslab360.coordinator import Botslab360Coordinator
 
 from .conftest import TEST_CREDENTIALS, TEST_DEVICE, make_status
@@ -40,9 +36,11 @@ async def test_coordinator_updates_all_discovered_devices(
     mock_client.get_status.side_effect = [make_status(), second_status]
     coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
 
-    await coordinator.async_config_entry_first_refresh()
+    await coordinator._async_setup()
+    await coordinator.async_refresh()
 
     assert coordinator.update_interval == timedelta(seconds=60)
+    mock_client.get_devices.assert_awaited_once()
     assert set(coordinator.devices) == {TEST_DEVICE.id, second_device.id}
     assert set(coordinator.data) == {TEST_DEVICE.id, second_device.id}
     assert mock_client.get_status.await_args_list[0].args == (TEST_DEVICE.id,)
@@ -78,25 +76,21 @@ async def test_entry_runtime_data_and_unload(hass, mock_client) -> None:
 
     entry = _entry()
     entry.add_to_hass(hass)
-    with (
-        patch.object(
-            hass.config_entries,
-            "async_forward_entry_setups",
-            new=AsyncMock(),
-        ) as forward_mock,
-        patch.object(
-            hass.config_entries,
-            "async_unload_platforms",
-            new=AsyncMock(return_value=True),
-        ) as unload_mock,
-    ):
-        assert await async_setup_entry(hass, entry)
+    forward_entry_setups = hass.config_entries.async_forward_entry_setups
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        new=AsyncMock(wraps=forward_entry_setups),
+    ) as forward_mock:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
         assert isinstance(entry.runtime_data, Botslab360RuntimeData)
         assert entry.runtime_data.client is mock_client
         assert entry.runtime_data.coordinator.data[TEST_DEVICE.id] == make_status()
-        forward_mock.assert_awaited_once()
+        forward_mock.assert_awaited_once_with(entry, PLATFORMS)
+        assert hass.states.get("sensor.test_robot_error_code") is not None
+        assert hass.states.get("sensor.test_robot_fan_mode") is not None
 
-        assert await async_unload_entry(hass, entry)
-        unload_mock.assert_awaited_once()
+        assert await hass.config_entries.async_unload(entry.entry_id)
 
     mock_client.close.assert_awaited_once()
