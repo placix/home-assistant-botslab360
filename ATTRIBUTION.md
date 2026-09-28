@@ -7,6 +7,16 @@
 [TA2k/ioBroker.botslab360](https://github.com/TA2k/ioBroker.botslab360).
 No claim is made that the brand motif was created by this project.
 
+## Protocol / implementation reference
+
+[TA2k/ioBroker.botslab360](https://github.com/TA2k/ioBroker.botslab360) is an
+important reference for parts of the Botslab and 360Robot protocol research
+used by the separate `python-botslab360` communication library.
+
+This Home Assistant integration is an independent project. Its integration
+code was not copied from ioBroker.botslab360, and TA2k is not presented as a
+maintainer, owner, or co-author of the integration.
+
 The source repository is licensed under the MIT License:
 
 > MIT License

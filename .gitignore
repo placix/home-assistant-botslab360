@@ -3,8 +3,12 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.venv-*/
+venv/
+venv-*/
 .vscode/
 .idea/
 coverage.xml
 htmlcov/
+tmp/
 "@ | Set-Content -Encoding utf8 .gitignore
