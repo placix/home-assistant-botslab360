@@ -1,0 +1,62 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Reauthentication was successful."
+    },
+    "error": {
+      "cannot_connect": "Failed to connect.",
+      "invalid_auth": "Authentication failed.",
+      "no_devices": "No Botslab devices were found for this account.",
+      "reauth_wrong_account": "The credentials belong to a different account."
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "q": "Q",
+          "t": "T"
+        },
+        "description": "Enter new Q and T credentials for this account.",
+        "title": "Reauthenticate Botslab 360"
+      },
+      "user": {
+        "data": {
+          "q": "Q",
+          "t": "T"
+        },
+        "description": "Enter the Q and T credentials for your Botslab account.",
+        "title": "Connect to Botslab 360"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "cleaned_area": {
+        "name": "Cleaned area"
+      },
+      "cleaning_time": {
+        "name": "Cleaning time"
+      },
+      "error_code": {
+        "name": "Error code"
+      },
+      "fan_mode": {
+        "name": "Fan mode"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Communication with Botslab 360 failed."
+    },
+    "command_failed": {
+      "message": "The command could not be sent to the robot."
+    },
+    "invalid_auth": {
+      "message": "The Botslab 360 credentials are no longer valid."
+    }
+  }
+}

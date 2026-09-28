@@ -1,0 +1,10 @@
+@"
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.vscode/
+.idea/
+coverage.xml
+htmlcov/
+"@ | Set-Content -Encoding utf8 .gitignore

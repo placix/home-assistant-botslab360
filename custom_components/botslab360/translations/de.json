@@ -1,0 +1,62 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Dieses Konto ist bereits konfiguriert.",
+      "reauth_successful": "Die erneute Authentifizierung war erfolgreich."
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen.",
+      "invalid_auth": "Authentifizierung fehlgeschlagen.",
+      "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden.",
+      "reauth_wrong_account": "Die Zugangsdaten gehören zu einem anderen Konto."
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "q": "Q",
+          "t": "T"
+        },
+        "description": "Gib neue Q- und T-Zugangsdaten für dieses Konto ein.",
+        "title": "Botslab 360 erneut authentifizieren"
+      },
+      "user": {
+        "data": {
+          "q": "Q",
+          "t": "T"
+        },
+        "description": "Gib die Q- und T-Zugangsdaten deines Botslab-Kontos ein.",
+        "title": "Mit Botslab 360 verbinden"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Akku"
+      },
+      "cleaned_area": {
+        "name": "Gereinigte Fläche"
+      },
+      "cleaning_time": {
+        "name": "Reinigungszeit"
+      },
+      "error_code": {
+        "name": "Fehlercode"
+      },
+      "fan_mode": {
+        "name": "Saugmodus"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Die Kommunikation mit Botslab 360 ist fehlgeschlagen."
+    },
+    "command_failed": {
+      "message": "Der Befehl konnte nicht an den Roboter gesendet werden."
+    },
+    "invalid_auth": {
+      "message": "Die Botslab-360-Zugangsdaten sind nicht mehr gültig."
+    }
+  }
+}
