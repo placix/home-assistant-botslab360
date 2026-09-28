@@ -1,11 +1,12 @@
 {
   "domain": "botslab360",
   "name": "Botslab 360",
-  "codeowners": [],
+  "codeowners": ["@placix"],
   "config_flow": true,
   "documentation": "https://github.com/placix/home-assistant-botslab360",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/placix/home-assistant-botslab360/issues",
   "requirements": ["botslab360==0.1.0"],
   "version": "0.1.0"
 }
