@@ -20,6 +20,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
@@ -28,7 +29,11 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from . import create_client_from_entry_data
+from . import (
+    async_discard_authenticated_client,
+    async_store_authenticated_client,
+    create_client_from_entry_data,
+)
 from .const import (
     CONF_AUTH_BACKEND,
     CONF_DEVICE_IDENTITY,
@@ -174,6 +179,18 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_reauth = False
         self._last_errors: dict[str, str] = {}
 
+    @callback
+    def async_remove(self) -> None:
+        """Close a client retained by an abandoned captcha flow."""
+
+        client = self._pending_client
+        self._clear_pending_state()
+        if client is not None:
+            self.hass.async_create_task(
+                client.close(),
+                "Close abandoned Botslab 360 authentication client",
+            )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -300,10 +317,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self._async_return_to_origin("cannot_connect")
                 data = self._pending_data
                 reauth = self._pending_reauth
-                await self._async_clear_pending()
+                self._clear_pending_state()
                 return await self._async_finish_validation(
                     validation,
                     data,
+                    client,
                     reauth=reauth,
                 )
 
@@ -336,10 +354,10 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except (KeyError, ValueError):
             self._last_errors["base"] = "invalid_auth"
         else:
-            await client.close()
             return await self._async_finish_validation(
                 validation,
                 entry_data,
+                client,
                 reauth=reauth,
             )
 
@@ -351,12 +369,14 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         validation: ValidationResult,
         entry_data: dict[str, Any],
+        client: Botslab360Client,
         *,
         reauth: bool,
     ) -> ConfigFlowResult:
         if reauth:
             entry = self._get_reauth_entry()
             if validation.account_fingerprint != entry.unique_id:
+                await client.close()
                 if CONF_Q in entry.data and CONF_T in entry.data:
                     return self._show_legacy_reauth_form(
                         {"base": "reauth_wrong_account"}
@@ -364,17 +384,47 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self._show_native_reauth_form(
                     {"base": "reauth_wrong_account"}
                 )
-            return self.async_update_reload_and_abort(
-                entry,
-                data_updates=entry_data,
+            await async_store_authenticated_client(
+                self.hass,
+                validation.account_fingerprint,
+                client,
             )
+            try:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates=entry_data,
+                )
+            except BaseException:
+                await async_discard_authenticated_client(
+                    self.hass,
+                    validation.account_fingerprint,
+                    client,
+                )
+                raise
 
-        await self.async_set_unique_id(validation.account_fingerprint)
-        self._abort_if_unique_id_configured()
-        return self.async_create_entry(
-            title=validation.title,
-            data=entry_data,
+        try:
+            await self.async_set_unique_id(validation.account_fingerprint)
+            self._abort_if_unique_id_configured()
+        except BaseException:
+            await client.close()
+            raise
+        await async_store_authenticated_client(
+            self.hass,
+            validation.account_fingerprint,
+            client,
         )
+        try:
+            return self.async_create_entry(
+                title=validation.title,
+                data=entry_data,
+            )
+        except BaseException:
+            await async_discard_authenticated_client(
+                self.hass,
+                validation.account_fingerprint,
+                client,
+            )
+            raise
 
     async def _async_return_to_origin(self, error: str) -> ConfigFlowResult:
         reauth = self._pending_reauth
@@ -386,6 +436,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_clear_pending(self) -> None:
         if self._pending_client is not None:
             await self._pending_client.close()
+        self._clear_pending_state()
+
+    def _clear_pending_state(self) -> None:
+        """Forget transient captcha state after ownership is transferred."""
+
         self._pending_client = None
         self._pending_challenge = None
         self._pending_data = None

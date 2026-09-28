@@ -5,6 +5,7 @@ from datetime import timedelta
 from homeassistant.const import Platform
 
 DOMAIN = "botslab360"
+DATA_AUTHENTICATED_CLIENTS = "authenticated_clients"
 
 CONF_AUTH_BACKEND = "backend"
 CONF_DEVICE_IDENTITY = "device_identity"

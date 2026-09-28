@@ -26,6 +26,7 @@ from .const import (
     CONF_IDENTITY_MID,
     CONF_Q,
     CONF_T,
+    DATA_AUTHENTICATED_CLIENTS,
     DOMAIN,
     PLATFORMS,
 )
@@ -44,6 +45,60 @@ class Botslab360RuntimeData:
 
 
 type Botslab360ConfigEntry = ConfigEntry[Botslab360RuntimeData]
+
+
+async def async_store_authenticated_client(
+    hass: HomeAssistant,
+    account_fingerprint: str,
+    client: Botslab360Client,
+) -> None:
+    """Store an authenticated client for the next config entry setup."""
+
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    clients: dict[str, Botslab360Client] = domain_data.setdefault(
+        DATA_AUTHENTICATED_CLIENTS, {}
+    )
+    previous = clients.get(account_fingerprint)
+    if previous is not None and previous is not client:
+        await previous.close()
+    clients[account_fingerprint] = client
+
+
+def take_authenticated_client(
+    hass: HomeAssistant,
+    account_fingerprint: str | None,
+) -> Botslab360Client | None:
+    """Consume a client handed off by a successful config flow."""
+
+    if account_fingerprint is None:
+        return None
+    domain_data = hass.data.get(DOMAIN)
+    if not domain_data:
+        return None
+    clients: dict[str, Botslab360Client] | None = domain_data.get(
+        DATA_AUTHENTICATED_CLIENTS
+    )
+    if clients is None:
+        return None
+    return clients.pop(account_fingerprint, None)
+
+
+async def async_discard_authenticated_client(
+    hass: HomeAssistant,
+    account_fingerprint: str,
+    client: Botslab360Client,
+) -> None:
+    """Close a handed-off client if it is still awaiting setup."""
+
+    domain_data = hass.data.get(DOMAIN)
+    clients = (
+        domain_data.get(DATA_AUTHENTICATED_CLIENTS)
+        if domain_data is not None
+        else None
+    )
+    if clients is not None and clients.get(account_fingerprint) is client:
+        clients.pop(account_fingerprint)
+        await client.close()
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -80,13 +135,15 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Botslab 360 from a config entry."""
 
-    try:
-        client = create_client_from_entry_data(entry.data)
-    except (AuthenticationError, KeyError, ValueError) as err:
-        raise ConfigEntryAuthFailed(
-            translation_domain=DOMAIN,
-            translation_key="invalid_auth",
-        ) from err
+    client = take_authenticated_client(hass, entry.unique_id)
+    if client is None:
+        try:
+            client = create_client_from_entry_data(entry.data)
+        except (AuthenticationError, KeyError, ValueError) as err:
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN,
+                translation_key="invalid_auth",
+            ) from err
 
     coordinator = Botslab360Coordinator(hass, entry, client)
 

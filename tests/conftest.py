@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from botslab360 import Botslab360Client, Device, DeviceIdentity, RobotStatus
+from botslab360 import (
+    Botslab360Client,
+    Device,
+    DeviceIdentity,
+    RobotStatus,
+    SmartSession,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 
 from custom_components.botslab360.const import (
@@ -50,6 +56,12 @@ TEST_DEVICE = Device(
     model="Test Model",
     online=True,
 )
+TEST_SESSION = SmartSession(
+    qid="synthetic-qid",
+    sid="synthetic-sid",
+    push_key="synthetic-push-key",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TestRoom:
@@ -113,14 +125,25 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
-@pytest.fixture
-def mock_client() -> Generator[MagicMock]:
-    """Return a fully mocked botslab360 client."""
+def make_mock_client() -> MagicMock:
+    """Create a client mock with realistic authentication state."""
 
     client = MagicMock(spec=Botslab360Client)
     client.account_fingerprint = TEST_ACCOUNT_FINGERPRINT
-    client.authenticate = AsyncMock()
-    client.continue_authentication = AsyncMock()
+    client.session = None
+
+    async def authenticate(*args, **kwargs):
+        client.session = TEST_SESSION
+        return TEST_SESSION
+
+    async def continue_authentication(*args, **kwargs):
+        client.session = TEST_SESSION
+        return TEST_SESSION
+
+    client.authenticate = AsyncMock(side_effect=authenticate)
+    client.continue_authentication = AsyncMock(
+        side_effect=continue_authentication
+    )
     client.get_devices = AsyncMock(return_value=[TEST_DEVICE])
     client.get_rooms = AsyncMock(return_value=TEST_ROOMS)
     client.clean_rooms = AsyncMock()
@@ -131,6 +154,14 @@ def mock_client() -> Generator[MagicMock]:
     client.return_to_dock = AsyncMock()
     client.locate = AsyncMock()
     client.close = AsyncMock()
+    return client
+
+
+@pytest.fixture
+def mock_client() -> Generator[MagicMock]:
+    """Return a fully mocked botslab360 client."""
+
+    client = make_mock_client()
 
     with (
         patch(

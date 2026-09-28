@@ -47,7 +47,8 @@ class Botslab360Coordinator(DataUpdateCoordinator[dict[str, RobotStatus]]):
         """Authenticate and discover the account's devices."""
 
         try:
-            await self.client.authenticate()
+            if self.client.session is None:
+                await self.client.authenticate()
             devices = await self.client.get_devices()
         except AuthenticationError as err:
             raise ConfigEntryAuthFailed(

@@ -138,10 +138,39 @@ async def test_entry_runtime_data_and_unload(hass, mock_client) -> None:
         forward_mock.assert_awaited_once_with(entry, PLATFORMS)
         assert hass.states.get("sensor.test_robot_error_code") is not None
         assert hass.states.get("sensor.test_robot_fan_mode") is not None
+        mock_client.authenticate.assert_awaited_once()
 
         clear_map_cache = MagicMock()
         entry.runtime_data.map_cache.clear = clear_map_cache
         assert await hass.config_entries.async_unload(entry.entry_id)
 
     clear_map_cache.assert_called_once_with()
+    mock_client.close.assert_awaited_once()
+
+
+async def test_native_entry_without_handoff_authenticates_after_restart(
+    hass, mock_client
+) -> None:
+    """Test native entries reconstruct and authenticate without a handoff."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test-account-fingerprint",
+        data=TEST_NATIVE_ENTRY_DATA,
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.botslab360.create_client_from_entry_data",
+        return_value=mock_client,
+    ) as factory:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.runtime_data.client is mock_client
+    factory.assert_called_once_with(TEST_NATIVE_ENTRY_DATA)
+    mock_client.authenticate.assert_awaited_once()
+    mock_client.get_devices.assert_awaited_once()
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
     mock_client.close.assert_awaited_once()
