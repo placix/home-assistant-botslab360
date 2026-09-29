@@ -5,7 +5,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from botslab360 import ApiError, AuthBackend, AuthenticationError
+from botslab360 import (
+    ApiError,
+    AuthBackend,
+    AuthenticationError,
+    CaptchaChallenge,
+    CaptchaRequired,
+    QihooCredentials,
+)
+from homeassistant.config_entries import ConfigEntryState, SOURCE_REAUTH
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -14,13 +22,20 @@ from custom_components.botslab360 import (
     Botslab360RuntimeData,
     create_client_from_entry_data,
 )
-from custom_components.botslab360.const import DOMAIN, PLATFORMS
+from custom_components.botslab360.const import (
+    CONF_CACHED_Q,
+    CONF_CACHED_T,
+    DOMAIN,
+    PLATFORMS,
+)
 from custom_components.botslab360.coordinator import Botslab360Coordinator
 
 from .conftest import (
     TEST_CREDENTIALS,
+    TEST_CACHED_CREDENTIALS,
     TEST_DEVICE,
     TEST_NATIVE_ENTRY_DATA,
+    make_mock_client,
     make_status,
 )
 
@@ -93,6 +108,25 @@ def test_native_entry_uses_saved_backend_and_identity() -> None:
         "00000000-0000-4000-8000-000000000001"
     )
     assert "region" not in call.kwargs
+
+
+def test_native_entry_prefers_cached_q_t_client() -> None:
+    """Test cached native credentials remain distinct from legacy entry data."""
+
+    data = {
+        **TEST_NATIVE_ENTRY_DATA,
+        CONF_CACHED_Q: TEST_CACHED_CREDENTIALS.q,
+        CONF_CACHED_T: TEST_CACHED_CREDENTIALS.t,
+    }
+    with patch("custom_components.botslab360.Botslab360Client") as client_class:
+        client = create_client_from_entry_data(data)
+
+    assert client is client_class.return_value
+    client_class.assert_called_once_with(
+        TEST_CACHED_CREDENTIALS.q,
+        TEST_CACHED_CREDENTIALS.t,
+    )
+    client_class.from_credentials.assert_not_called()
 
 
 async def test_coordinator_translates_api_error(hass, mock_client) -> None:
@@ -174,3 +208,124 @@ async def test_native_entry_without_handoff_authenticates_after_restart(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     mock_client.close.assert_awaited_once()
+
+
+async def test_native_restart_uses_cached_q_t_without_quc_login(
+    hass, caplog
+) -> None:
+    """Test a restart establishes a fresh session directly from cached Q/T."""
+
+    cached_client = make_mock_client()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test-account-fingerprint",
+        data={
+            **TEST_NATIVE_ENTRY_DATA,
+            CONF_CACHED_Q: TEST_CACHED_CREDENTIALS.q,
+            CONF_CACHED_T: TEST_CACHED_CREDENTIALS.t,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.botslab360.Botslab360Client") as client_class:
+        client_class.return_value = cached_client
+        client_class.from_credentials.side_effect = AssertionError(
+            "native QUC login must not run with valid cached Q/T"
+        )
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.client is cached_client
+    client_class.assert_called_once_with(
+        TEST_CACHED_CREDENTIALS.q,
+        TEST_CACHED_CREDENTIALS.t,
+    )
+    client_class.from_credentials.assert_not_called()
+    cached_client.authenticate.assert_awaited_once()
+    assert TEST_CACHED_CREDENTIALS.q not in caplog.text
+    assert TEST_CACHED_CREDENTIALS.t not in caplog.text
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    cached_client.close.assert_awaited_once()
+
+
+async def test_invalid_native_cache_falls_back_and_refreshes_q_t(
+    hass,
+) -> None:
+    """Test rejected cached Q/T falls back once to stored native credentials."""
+
+    cached_client = make_mock_client()
+    cached_client.authenticate.side_effect = AuthenticationError("expired cache")
+    native_client = make_mock_client()
+    refreshed = QihooCredentials(
+        q="u=360H1234567890&n=synthetic&m=refreshed-token",
+        t="s=refreshed-session&t=1700000001&v=2.0",
+        qid="1234567890",
+    )
+    native_client.credentials = refreshed
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test-account-fingerprint",
+        data={
+            **TEST_NATIVE_ENTRY_DATA,
+            CONF_CACHED_Q: TEST_CACHED_CREDENTIALS.q,
+            CONF_CACHED_T: TEST_CACHED_CREDENTIALS.t,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.botslab360.Botslab360Client") as client_class:
+        client_class.return_value = cached_client
+        client_class.from_credentials.return_value = native_client
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.client is native_client
+    cached_client.authenticate.assert_awaited_once()
+    cached_client.close.assert_awaited_once()
+    native_client.authenticate.assert_awaited_once()
+    assert entry.data[CONF_CACHED_Q] == refreshed.q
+    assert entry.data[CONF_CACHED_T] == refreshed.t
+    call = client_class.from_credentials.call_args
+    assert call.kwargs["device_identity"].mid == (
+        TEST_NATIVE_ENTRY_DATA["device_identity"]["mid"]
+    )
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    native_client.close.assert_awaited_once()
+
+
+async def test_cached_q_t_fallback_captcha_starts_reauthentication(hass) -> None:
+    """Test interactive fallback authentication uses the existing reauth flow."""
+
+    cached_client = make_mock_client()
+    cached_client.authenticate.side_effect = AuthenticationError("expired cache")
+    native_client = make_mock_client()
+    native_client.authenticate.side_effect = CaptchaRequired(
+        CaptchaChallenge(image=b"synthetic-image", sc="synthetic-context")
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="test-account-fingerprint",
+        data={
+            **TEST_NATIVE_ENTRY_DATA,
+            CONF_CACHED_Q: TEST_CACHED_CREDENTIALS.q,
+            CONF_CACHED_T: TEST_CACHED_CREDENTIALS.t,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.botslab360.Botslab360Client") as client_class:
+        client_class.return_value = cached_client
+        client_class.from_credentials.return_value = native_client
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert cached_client.close.await_count == 1
+    assert native_client.close.await_count == 1
+    assert any(
+        flow["context"]["source"] == SOURCE_REAUTH
+        for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    )

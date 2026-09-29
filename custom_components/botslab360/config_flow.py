@@ -33,6 +33,7 @@ from . import (
     async_discard_authenticated_client,
     async_store_authenticated_client,
     create_client_from_entry_data,
+    create_native_client_from_entry_data,
 )
 from .const import (
     CONF_AUTH_BACKEND,
@@ -336,7 +337,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._last_errors = {}
         client: Botslab360Client | None = None
         try:
-            client = create_client_from_entry_data(entry_data)
+            client = (
+                create_native_client_from_entry_data(entry_data)
+                if CONF_EMAIL in entry_data
+                else create_client_from_entry_data(entry_data)
+            )
             await client.authenticate()
             validation = await _async_discover(client)
         except CaptchaRequired as err:

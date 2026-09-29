@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from botslab360 import Device, RobotStatus
+from collections.abc import Awaitable
+
+from botslab360 import ApiError, AuthenticationError, Device, RobotStatus
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -34,3 +38,26 @@ class Botslab360Entity(CoordinatorEntity[Botslab360Coordinator]):
         """Return this robot's most recently polled status."""
 
         return self.coordinator.data.get(self.device.id)
+
+    async def _async_run_command(
+        self,
+        entry: ConfigEntry,
+        command: Awaitable[None],
+    ) -> None:
+        """Run a library command and refresh status after success."""
+
+        try:
+            await command
+        except AuthenticationError as err:
+            entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_auth",
+            ) from err
+        except ApiError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+            ) from err
+
+        await self.coordinator.async_request_refresh()

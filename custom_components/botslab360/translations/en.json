@@ -56,6 +56,11 @@
     }
   },
   "entity": {
+    "button": {
+      "clean_room": {
+        "name": "Clean {room_name}"
+      }
+    },
     "camera": {
       "map": {
         "name": "Map"

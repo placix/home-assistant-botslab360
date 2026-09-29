@@ -24,6 +24,8 @@ from custom_components.botslab360 import take_authenticated_client
 from custom_components.botslab360.config_flow import CONF_CAPTCHA_CODE
 from custom_components.botslab360.const import (
     CONF_AUTH_BACKEND,
+    CONF_CACHED_Q,
+    CONF_CACHED_T,
     CONF_DEVICE_IDENTITY,
     DATA_AUTHENTICATED_CLIENTS,
     DOMAIN,
@@ -32,6 +34,7 @@ from custom_components.botslab360.const import (
 from .conftest import (
     TEST_ACCOUNT_FINGERPRINT,
     TEST_CREDENTIALS,
+    TEST_CACHED_CREDENTIALS,
     TEST_DEVICE_IDENTITY,
     TEST_NATIVE_ENTRY_DATA,
     TEST_NATIVE_INPUT,
@@ -100,7 +103,12 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
     mock_client.close.assert_not_awaited()
     assert hass.states.get("vacuum.test_robot") is not None
     assert hass.states.get("sensor.test_robot_battery") is not None
-    assert hass.states.get("camera.test_robot_map") is not None
+    assert hass.states.get("camera.test_robot_map") is None
+    assert hass.states.get("button.test_robot_clean_bad") is not None
+    assert entry.data[CONF_CACHED_Q] == TEST_CACHED_CREDENTIALS.q
+    assert entry.data[CONF_CACHED_T] == TEST_CACHED_CREDENTIALS.t
+    assert "sid" not in entry.data
+    assert "pushKey" not in entry.data
     assert hass.data[DOMAIN][DATA_AUTHENTICATED_CLIENTS] == {}
 
     assert await hass.config_entries.async_unload(entry.entry_id)
@@ -166,7 +174,7 @@ async def test_captcha_continues_on_same_client(hass, mock_client) -> None:
     mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
     with (
         patch(
-            "custom_components.botslab360.config_flow.create_client_from_entry_data",
+            "custom_components.botslab360.config_flow.create_native_client_from_entry_data",
             return_value=mock_client,
         ) as factory_mock,
         patch(
@@ -207,6 +215,8 @@ async def test_captcha_continues_on_same_client(hass, mock_client) -> None:
     assert args[1] == TEST_CAPTCHA_CODE
     assert result["result"].state is ConfigEntryState.LOADED
     assert result["result"].runtime_data.client is mock_client
+    assert result["result"].data[CONF_CACHED_Q] == TEST_CACHED_CREDENTIALS.q
+    assert result["result"].data[CONF_CACHED_T] == TEST_CACHED_CREDENTIALS.t
     mock_client.authenticate.assert_awaited_once()
     setup_factory.assert_not_called()
     mock_client.close.assert_not_awaited()
@@ -363,7 +373,7 @@ async def test_native_reauthentication_reuses_client_during_real_reload(
     }
     with (
         patch(
-            "custom_components.botslab360.config_flow.create_client_from_entry_data",
+            "custom_components.botslab360.config_flow.create_native_client_from_entry_data",
             return_value=reauth_client,
         ),
         patch(

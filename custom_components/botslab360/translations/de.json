@@ -56,6 +56,11 @@
     }
   },
   "entity": {
+    "button": {
+      "clean_room": {
+        "name": "{room_name} reinigen"
+      }
+    },
     "camera": {
       "map": {
         "name": "Karte"

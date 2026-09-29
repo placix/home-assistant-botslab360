@@ -20,6 +20,8 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_AUTH_BACKEND,
+    CONF_CACHED_Q,
+    CONF_CACHED_T,
     CONF_DEVICE_IDENTITY,
     CONF_IDENTITY_ANDROID_ID,
     CONF_IDENTITY_M2,
@@ -115,6 +117,16 @@ def create_client_from_entry_data(
 
     if CONF_Q in data and CONF_T in data:
         return Botslab360Client(data[CONF_Q], data[CONF_T])
+    if CONF_CACHED_Q in data and CONF_CACHED_T in data:
+        return Botslab360Client(data[CONF_CACHED_Q], data[CONF_CACHED_T])
+
+    return create_native_client_from_entry_data(data)
+
+
+def create_native_client_from_entry_data(
+    data: Mapping[str, Any],
+) -> Botslab360Client:
+    """Create a native credential client while retaining its device identity."""
 
     identity_data = data[CONF_DEVICE_IDENTITY]
     identity = DeviceIdentity(
@@ -130,28 +142,98 @@ def create_client_from_entry_data(
     )
 
 
+def _has_native_cached_credentials(data: Mapping[str, Any]) -> bool:
+    """Return whether a native entry has a complete reusable Q/T cache."""
+
+    return (
+        CONF_EMAIL in data
+        and CONF_PASSWORD in data
+        and CONF_CACHED_Q in data
+        and CONF_CACHED_T in data
+    )
+
+
+def _async_update_cached_credentials(
+    hass: HomeAssistant,
+    entry: Botslab360ConfigEntry,
+    client: Botslab360Client,
+) -> None:
+    """Persist changed reusable Q/T credentials for native entries only."""
+
+    if (
+        CONF_EMAIL not in entry.data
+        or (credentials := client.credentials) is None
+    ):
+        return
+    if (
+        entry.data.get(CONF_CACHED_Q) == credentials.q
+        and entry.data.get(CONF_CACHED_T) == credentials.t
+    ):
+        return
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_CACHED_Q: credentials.q,
+            CONF_CACHED_T: credentials.t,
+        },
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: Botslab360ConfigEntry
 ) -> bool:
     """Set up Botslab 360 from a config entry."""
 
     client = take_authenticated_client(hass, entry.unique_id)
+    used_handoff = client is not None
+    used_native_cache = False
     if client is None:
         try:
             client = create_client_from_entry_data(entry.data)
         except (AuthenticationError, KeyError, ValueError) as err:
-            raise ConfigEntryAuthFailed(
-                translation_domain=DOMAIN,
-                translation_key="invalid_auth",
-            ) from err
+            if not _has_native_cached_credentials(entry.data):
+                raise ConfigEntryAuthFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_auth",
+                ) from err
+            try:
+                client = create_native_client_from_entry_data(entry.data)
+            except (AuthenticationError, KeyError, ValueError) as fallback_err:
+                raise ConfigEntryAuthFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_auth",
+                ) from fallback_err
+        else:
+            used_native_cache = _has_native_cached_credentials(entry.data)
 
     coordinator = Botslab360Coordinator(hass, entry, client)
 
     try:
         await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryAuthFailed:
+        if used_handoff or not used_native_cache:
+            await client.close()
+            raise
+        await client.close()
+        try:
+            client = create_native_client_from_entry_data(entry.data)
+        except (AuthenticationError, KeyError, ValueError) as err:
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN,
+                translation_key="invalid_auth",
+            ) from err
+        coordinator = Botslab360Coordinator(hass, entry, client)
+        try:
+            await coordinator.async_config_entry_first_refresh()
+        except BaseException:
+            await client.close()
+            raise
     except BaseException:
         await client.close()
         raise
+
+    _async_update_cached_credentials(hass, entry, client)
 
     entry.runtime_data = Botslab360RuntimeData(
         client,

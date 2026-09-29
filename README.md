@@ -22,7 +22,7 @@ for all communication with Botslab services and devices.
 - Cleaning duration
 - Error code
 - Fan mode
-- Rendered room-polygon map camera
+- Native room-cleaning buttons
 - Room cleaning through `botslab360.clean_rooms`
 
 This is an early integration. Native 360Robot authentication and the current
@@ -33,59 +33,22 @@ Botslab / CloudSmart and original 360Robot accounts use different account
 systems. Select the account type that owns the robot; the integration does not
 automatically fall back between them.
 
-## Xiaomi Vacuum Map Card
+## Room cleaning
 
-The integration creates a rendered map camera for every robot, for example
-`camera.test_robot_map`. This is a room-polygon cleaning map, not a physical
-camera or live video stream. Its `calibration_points` attribute uses the same
-coordinate transform as the PNG, so the Xiaomi Vacuum Map Card can request
-camera calibration directly.
+The integration discovers rooms through `python-botslab360` and creates one
+native Home Assistant button for each room. Pressing a room button starts a
+cleaning run for exactly that room. Buttons are grouped with their vacuum in
+the Home Assistant device registry and remain stable when room names change.
 
-Room geometry changes infrequently. The image is fetched and cached on first
-use and can be refreshed explicitly with `homeassistant.update_entity`; it is
-not refreshed by the 60-second vacuum status poll. The camera's
-`predefined_selections` attribute contains a compact, ready-to-copy list of
-room IDs, outlines, and centroid labels for the card's `ROOM` mode.
+The `botslab360.clean_rooms` action remains available for automations that need
+to select one or more room IDs or apply supported per-run cleaning settings.
 
-```yaml
-type: custom:xiaomi-vacuum-map-card
-entity: vacuum.test_robot
-map_source:
-  camera: camera.test_robot_map
-calibration_source:
-  camera: true
-map_modes:
-  - name: Rooms
-    icon: mdi:floor-plan
-    selection_type: ROOM
-    max_selections: 10
-    repeats_type: EXTERNAL
-    max_repeats: 2
-    predefined_selections:
-      # Copy the current list from the map camera attribute of the same name.
-      - id: 1
-        outline:
-          - [0, 0]
-          - [4000, 0]
-          - [4000, 3000]
-          - [0, 3000]
-        label:
-          text: Example room
-          x: 2000
-          y: 1500
-    service_call_schema:
-      service: botslab360.clean_rooms
-      target:
-        entity_id: "[[entity_id]]"
-      service_data:
-        room_ids: "[[selection]]"
-        clean_times: "[[repeats]]"
-```
+## Map support
 
-The example outline is illustrative. Use the coordinates exposed by your own
-map camera. The initial renderer intentionally shows room polygons only; it
-does not decode the vendor occupancy raster or render walls, paths, the robot,
-or the charging dock.
+The existing experimental map renderer remains in the codebase for future
+development, but the camera platform is currently disabled and no map camera
+entities are exposed. Xiaomi Vacuum Map Card integration and additional map
+features are explicitly deferred.
 
 ## Installation with HACS
 
@@ -111,6 +74,13 @@ The integration stores a generated device identity in the Home Assistant config
 entry and reuses it during reauthentication. The external library does not
 persist this identity itself. Existing config entries that use Q/T credentials
 remain supported and continue to reauthenticate through their legacy flow.
+
+For native email/password entries, Home Assistant also caches the reusable Q/T
+credentials obtained after successful authentication. Restarts use that cache
+to establish a fresh Smart Home session without repeating the interactive
+account login. SID and push-key session values are not persisted. If the cache
+is rejected, the integration falls back once to the stored native credentials
+and updates the cache after successful authentication.
 
 ## Acknowledgements
 

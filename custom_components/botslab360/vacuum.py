@@ -4,18 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from botslab360 import ApiError, AuthenticationError, Device, RobotStatus
+from botslab360 import Device, RobotStatus
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
     VacuumActivity,
     VacuumEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Botslab360ConfigEntry
-from .const import DOMAIN
 from .coordinator import Botslab360Coordinator
 from .entity import Botslab360Entity
 
@@ -95,21 +93,10 @@ class Botslab360Vacuum(Botslab360Entity, StateVacuumEntity):
     ) -> None:
         """Run a library command and refresh status after success."""
 
-        try:
-            await command(self.device.id)
-        except AuthenticationError as err:
-            self._config_entry.async_start_reauth(self.hass)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="invalid_auth",
-            ) from err
-        except ApiError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="command_failed",
-            ) from err
-
-        await self.coordinator.async_request_refresh()
+        await self._async_run_command(
+            self._config_entry,
+            command(self.device.id),
+        )
 
     async def async_start(self) -> None:
         """Start or resume cleaning."""

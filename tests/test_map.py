@@ -9,12 +9,12 @@ from unittest.mock import MagicMock
 from botslab360 import ApiError, AuthenticationError
 from PIL import Image
 
-from homeassistant.components.camera import async_get_image
+from homeassistant.const import Platform
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360 import Botslab360RuntimeData
 from custom_components.botslab360.camera import Botslab360MapCamera
-from custom_components.botslab360.const import DOMAIN
+from custom_components.botslab360.const import DOMAIN, PLATFORMS
 from custom_components.botslab360.coordinator import Botslab360Coordinator
 from custom_components.botslab360.map import (
     MAP_SIZE,
@@ -143,10 +143,10 @@ async def test_camera_authentication_error_starts_reauth(
     entry.async_start_reauth.assert_called_once_with(hass)
 
 
-async def test_multiple_devices_create_independent_camera_entities(
+async def test_camera_platform_is_not_loaded_for_multiple_devices(
     hass, mock_client
 ) -> None:
-    """Test config-entry setup creates one map camera per robot."""
+    """Test map code remains available while camera entities stay disabled."""
 
     second = TEST_DEVICE.__class__(
         id="second-test-device",
@@ -162,25 +162,14 @@ async def test_multiple_devices_create_independent_camera_entities(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.states.get("camera.test_robot_map") is not None
-    assert hass.states.get("camera.second_robot_map") is not None
-    mock_client.get_rooms.assert_not_awaited()
+    assert Platform.CAMERA not in PLATFORMS
+    assert hass.states.get("camera.test_robot_map") is None
+    assert hass.states.get("camera.second_robot_map") is None
+    assert mock_client.get_rooms.await_count == 2
 
 
-async def test_camera_first_image_updates_calibration_attributes(
-    hass, mock_client
-) -> None:
-    """Test first-use rendering publishes calibration for the Map Card."""
+def test_map_implementation_remains_importable() -> None:
+    """Test deferred rendering code remains available for future use."""
 
-    entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    image = await async_get_image(hass, "camera.test_robot_map")
-
-    assert image.content.startswith(b"\x89PNG\r\n\x1a\n")
-    state = hass.states.get("camera.test_robot_map")
-    assert state is not None
-    assert len(state.attributes["calibration_points"]) == 3
-    assert len(state.attributes["predefined_selections"]) == 2
+    assert Botslab360MapCamera is not None
+    assert render_room_map is not None

@@ -10,6 +10,7 @@ from botslab360 import (
     Botslab360Client,
     Device,
     DeviceIdentity,
+    QihooCredentials,
     RobotStatus,
     SmartSession,
 )
@@ -60,6 +61,11 @@ TEST_SESSION = SmartSession(
     qid="synthetic-qid",
     sid="synthetic-sid",
     push_key="synthetic-push-key",
+)
+TEST_CACHED_CREDENTIALS = QihooCredentials(
+    q="u=360H1234567890&n=synthetic&m=cached-token",
+    t="s=cached-session&t=1700000000&v=2.0",
+    qid="1234567890",
 )
 
 
@@ -130,6 +136,7 @@ def make_mock_client() -> MagicMock:
 
     client = MagicMock(spec=Botslab360Client)
     client.account_fingerprint = TEST_ACCOUNT_FINGERPRINT
+    client.credentials = TEST_CACHED_CREDENTIALS
     client.session = None
 
     async def authenticate(*args, **kwargs):
@@ -166,6 +173,10 @@ def mock_client() -> Generator[MagicMock]:
     with (
         patch(
             "custom_components.botslab360.config_flow.create_client_from_entry_data",
+            return_value=client,
+        ),
+        patch(
+            "custom_components.botslab360.config_flow.create_native_client_from_entry_data",
             return_value=client,
         ),
         patch(
