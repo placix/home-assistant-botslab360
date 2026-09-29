@@ -37,7 +37,7 @@
         "title": "Botslab 360 erneut authentifizieren"
       },
       "room_areas": {
-        "description": "Ordne die vom Roboter erkannten Räume den Bereichen in Home Assistant zu. Erkannte exakte Übereinstimmungen wurden bereits vorausgewählt. Ein Raum ohne Auswahl hat keinen eigenen Bereich und kann in Home Assistant den Bereich des physischen Roboters erben.",
+        "description": "Ordne die vom Roboter erkannten Räume den Bereichen in Home Assistant zu. Erkannte exakte Übereinstimmungen wurden bereits vorausgewählt. Aktiviere für einen Raum Ignore room, um sein Child Device und seine Entitäten auszublenden. Ein Raum ohne Bereich kann den Bereich des physischen Roboters erben.",
         "title": "Raumzuordnung"
       },
       "user": {
@@ -59,7 +59,7 @@
     },
     "step": {
       "init": {
-        "description": "Ordne die vom Roboter erkannten Räume den Bereichen in Home Assistant zu. Bestehende Zuordnungen bleiben erhalten; exakte Treffer werden nur für neue Räume vorgeschlagen. Leere eine Auswahl, um den eigenen Bereich des Raums zu entfernen. Ein nicht zugeordnetes Child Device kann in Home Assistant den Bereich des physischen Roboters erben.",
+        "description": "Ordne Roboterräume Home-Assistant-Bereichen zu oder aktiviere Ignore room, um das Child Device und die Entitäten eines Raums auszublenden. Bestehende Einstellungen bleiben erhalten; exakte Treffer werden nur für neue Räume vorgeschlagen. Leere eine Bereichsauswahl, um den eigenen Bereich des Raums zu entfernen.",
         "title": "Raumzuordnung"
       }
     }
@@ -76,6 +76,40 @@
     "button": {
       "clean_room": {
         "name": "{room_name} reinigen"
+      }
+    },
+    "select": {
+      "room_mode": {
+        "name": "Reinigungsmodus",
+        "state": {
+          "1": "Fegen + Wischen",
+          "2": "Fegen",
+          "3": "Wischen"
+        }
+      },
+      "room_fan_mode": {
+        "name": "Saugstärke",
+        "state": {
+          "quiet": "Leise",
+          "auto": "Automatisch",
+          "strong": "Stark",
+          "max": "Maximal"
+        }
+      },
+      "room_clean_times": {
+        "name": "Durchgänge",
+        "state": {
+          "1": "1x",
+          "2": "2x"
+        }
+      },
+      "room_water_pump": {
+        "name": "Wischwassermenge",
+        "state": {
+          "1": "Niedrig",
+          "2": "Mittel",
+          "3": "Hoch"
+        }
       }
     },
     "camera": {

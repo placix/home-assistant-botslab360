@@ -37,7 +37,7 @@
         "title": "Reauthenticate Botslab 360"
       },
       "room_areas": {
-        "description": "Assign the rooms detected by the robot to Areas in Home Assistant. Exact matches have already been selected. A room left empty has no explicit Area and may inherit the physical robot's Area in Home Assistant.",
+        "description": "Assign the rooms detected by the robot to Areas in Home Assistant. Exact matches have already been selected. Enable a room's Ignore room toggle to hide its child device and entities. A room left without an Area may inherit the physical robot's Area.",
         "title": "Room assignment"
       },
       "user": {
@@ -59,7 +59,7 @@
     },
     "step": {
       "init": {
-        "description": "Assign the rooms detected by the robot to Areas in Home Assistant. Existing choices are preserved and exact matches are suggested only for new rooms. Clear a selection to remove the room's explicit Area. An unassigned child may inherit the physical robot's Area in Home Assistant.",
+        "description": "Assign robot rooms to Home Assistant Areas or enable Ignore room to hide a room's child device and entities. Existing choices are preserved and exact matches are suggested only for new rooms. Clear an Area selection to remove the room's explicit Area.",
         "title": "Room assignment"
       }
     }
@@ -76,6 +76,40 @@
     "button": {
       "clean_room": {
         "name": "Clean {room_name}"
+      }
+    },
+    "select": {
+      "room_mode": {
+        "name": "Cleaning mode",
+        "state": {
+          "1": "Sweep + mop",
+          "2": "Sweep",
+          "3": "Mop"
+        }
+      },
+      "room_fan_mode": {
+        "name": "Suction mode",
+        "state": {
+          "quiet": "Quiet",
+          "auto": "Automatic",
+          "strong": "Strong",
+          "max": "Maximum"
+        }
+      },
+      "room_clean_times": {
+        "name": "Cleaning passes",
+        "state": {
+          "1": "1x",
+          "2": "2x"
+        }
+      },
+      "room_water_pump": {
+        "name": "Mopping water level",
+        "state": {
+          "1": "Low",
+          "2": "Medium",
+          "3": "High"
+        }
       }
     },
     "camera": {

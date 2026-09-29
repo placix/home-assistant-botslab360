@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from botslab360 import ApiError, AuthenticationError
+from botslab360 import ApiError, AuthenticationError, RoomCleaningSettings
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.exceptions import HomeAssistantError
@@ -14,7 +14,11 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.botslab360.const import CONF_ROOM_AREAS, DOMAIN
+from custom_components.botslab360.const import (
+    CONF_IGNORED_ROOMS,
+    CONF_ROOM_AREAS,
+    DOMAIN,
+)
 
 from .conftest import TEST_CREDENTIALS, TEST_DEVICE, TEST_ROOMS, make_status
 
@@ -176,8 +180,58 @@ async def test_press_cleans_exactly_the_associated_room(hass, mock_client) -> No
         blocking=True,
     )
 
-    mock_client.clean_rooms.assert_awaited_once_with(TEST_DEVICE, [1])
+    mock_client.clean_rooms.assert_awaited_once_with(
+        TEST_DEVICE,
+        [1],
+        room_settings={
+            1: RoomCleaningSettings(
+                mode=2,
+                clean_times=2,
+                fan_mode="max",
+                water_pump=1,
+            )
+        },
+    )
     mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id)
+
+
+async def test_ignored_room_has_no_entities_or_active_child_device(
+    hass, mock_client
+) -> None:
+    """Test ignored rooms are absent while other rooms remain available."""
+
+    entry = await _setup_entry(
+        hass,
+        options={CONF_IGNORED_ROOMS: [f"{TEST_DEVICE.id}:1"]},
+    )
+
+    assert (
+        er.async_get(hass).async_get_entity_id(
+            BUTTON_DOMAIN,
+            DOMAIN,
+            f"{TEST_DEVICE.id}_room_1_clean",
+        )
+        is None
+    )
+    assert _room_button_entity_id(hass, TEST_DEVICE.id, 6)
+    assert (
+        dr.async_get(hass).async_get_child_device_by_identifier(
+            (DOMAIN, f"{TEST_DEVICE.id}_room_1"),
+            entry.entry_id,
+        )
+        is None
+    )
+
+
+async def test_legacy_entry_without_ignore_configuration_exposes_all_rooms(
+    hass, mock_client
+) -> None:
+    """Test entries created before ignore support retain existing behavior."""
+
+    await _setup_entry(hass, options={CONF_ROOM_AREAS: {}})
+
+    assert _room_button_entity_id(hass, TEST_DEVICE.id, 1)
+    assert _room_button_entity_id(hass, TEST_DEVICE.id, 6)
 
 
 async def test_same_room_id_on_two_robots_has_distinct_unique_ids(

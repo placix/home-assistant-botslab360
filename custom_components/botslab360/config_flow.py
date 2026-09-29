@@ -14,6 +14,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.selector import (
     AreaSelector,
+    BooleanSelector,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
@@ -44,8 +45,10 @@ from .const import (
     CONF_IDENTITY_ANDROID_ID,
     CONF_IDENTITY_M2,
     CONF_IDENTITY_MID,
+    CONF_IGNORED_ROOMS,
     CONF_Q,
     CONF_ROOM_AREAS,
+    CONF_ROOM_PREFERENCES,
     CONF_T,
     DOMAIN,
 )
@@ -180,15 +183,21 @@ async def _async_discover(
 
 
 def _room_area_schema(fields: list[RoomAreaField]) -> vol.Schema:
-    """Return an Area-selector schema for discovered rooms."""
+    """Return Area and ignore selectors for discovered rooms."""
 
-    schema: dict[vol.Marker, AreaSelector] = {}
+    schema: dict[vol.Marker, AreaSelector | BooleanSelector] = {}
     for field in fields:
         description = (
             {"suggested_value": field.area_id} if field.area_id is not None else None
         )
         marker = vol.Optional(field.label, description=description)
         schema[marker] = AreaSelector()
+        schema[
+            vol.Optional(
+                field.ignore_label,
+                description={"suggested_value": field.ignored},
+            )
+        ] = BooleanSelector()
     return vol.Schema(schema)
 
 
@@ -202,6 +211,23 @@ def _room_area_mappings(
         field.discovered_room.mapping_key: user_input.get(field.label)
         for field in fields
     }
+
+
+def _ignored_room_keys(
+    fields: list[RoomAreaField],
+    user_input: dict[str, Any],
+    existing: set[str] | None = None,
+) -> list[str]:
+    """Convert room ignore toggles to stable robot/room option keys."""
+
+    ignored = set() if existing is None else set(existing)
+    for field in fields:
+        mapping_key = field.discovered_room.mapping_key
+        if user_input.get(field.ignore_label, field.ignored):
+            ignored.add(mapping_key)
+        else:
+            ignored.discard(mapping_key)
+    return sorted(ignored)
 
 
 class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -384,6 +410,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             validation.rooms,
             ar.async_get(self.hass).async_list_areas(),
             {},
+            (),
         )
         if user_input is None:
             return self.async_show_form(
@@ -392,7 +419,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 last_step=True,
             )
 
-        options = {CONF_ROOM_AREAS: _room_area_mappings(fields, user_input)}
+        options = {
+            CONF_ROOM_AREAS: _room_area_mappings(fields, user_input),
+            CONF_IGNORED_ROOMS: _ignored_room_keys(fields, user_input),
+            CONF_ROOM_PREFERENCES: {},
+        }
         self._clear_pending_state()
         await async_store_authenticated_client(
             self.hass,
@@ -614,10 +645,12 @@ class Botslab360OptionsFlow(config_entries.OptionsFlowWithReload):
         fields: list[RoomAreaField] = []
         if self._rooms is not None:
             configured_mappings = self.config_entry.options.get(CONF_ROOM_AREAS, {})
+            ignored_rooms = set(self.config_entry.options.get(CONF_IGNORED_ROOMS, ()))
             fields = room_area_fields(
                 self._rooms,
                 ar.async_get(self.hass).async_list_areas(),
                 configured_mappings,
+                ignored_rooms,
             )
             if user_input is not None:
                 mappings = dict(configured_mappings)
@@ -626,6 +659,11 @@ class Botslab360OptionsFlow(config_entries.OptionsFlowWithReload):
                     data={
                         **self.config_entry.options,
                         CONF_ROOM_AREAS: mappings,
+                        CONF_IGNORED_ROOMS: _ignored_room_keys(
+                            fields,
+                            user_input,
+                            ignored_rooms,
+                        ),
                     }
                 )
 

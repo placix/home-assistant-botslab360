@@ -9,16 +9,18 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.typing import ConfigType
 
 from botslab360 import (
+    ApiError,
     AuthBackend,
     AuthenticationError,
     Botslab360Client,
     DeviceIdentity,
 )
 
+from .areas import DiscoveredRoom, PreparedRoom, async_prepare_room_devices
 from .const import (
     CONF_AUTH_BACKEND,
     CONF_CACHED_Q,
@@ -45,6 +47,7 @@ class Botslab360RuntimeData:
     client: Botslab360Client
     coordinator: Botslab360Coordinator
     map_cache: Botslab360MapCache
+    rooms: tuple[PreparedRoom, ...] = ()
 
 
 type Botslab360ConfigEntry = ConfigEntry[Botslab360RuntimeData]
@@ -229,10 +232,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
 
     _async_update_cached_credentials(hass, entry, client)
 
+    discovered_rooms: list[DiscoveredRoom] = []
+    try:
+        for device in coordinator.devices.values():
+            discovered_rooms.extend(
+                DiscoveredRoom(device, room) for room in await client.get_rooms(device)
+            )
+    except AuthenticationError as err:
+        await client.close()
+        raise ConfigEntryAuthFailed(
+            translation_domain=DOMAIN,
+            translation_key="invalid_auth",
+        ) from err
+    except (ApiError, TimeoutError, OSError) as err:
+        await client.close()
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="cannot_connect",
+        ) from err
+
+    prepared_rooms = async_prepare_room_devices(
+        hass,
+        entry.entry_id,
+        entry.options,
+        discovered_rooms,
+    )
+
     entry.runtime_data = Botslab360RuntimeData(
         client,
         coordinator,
         Botslab360MapCache(hass, client),
+        prepared_rooms,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

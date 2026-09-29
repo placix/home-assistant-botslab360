@@ -79,6 +79,7 @@ class TestRoom:
     fan_mode: str | None
     water_pump: int | None
     vertices: tuple[tuple[int, int], ...] | None
+    mode: int | None
 
 
 TEST_ROOMS = [
@@ -90,6 +91,7 @@ TEST_ROOMS = [
         fan_mode="max",
         water_pump=1,
         vertices=((0, 0), (4000, 0), (4000, 3000), (0, 3000)),
+        mode=2,
     ),
     TestRoom(
         id=6,
@@ -99,6 +101,7 @@ TEST_ROOMS = [
         fan_mode="auto",
         water_pump=1,
         vertices=((4000, 0), (6500, 0), (6500, 3000), (4000, 3000)),
+        mode=1,
     ),
 ]
 

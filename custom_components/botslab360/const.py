@@ -14,15 +14,18 @@ CONF_DEVICE_IDENTITY = "device_identity"
 CONF_IDENTITY_ANDROID_ID = "android_id"
 CONF_IDENTITY_M2 = "m2"
 CONF_IDENTITY_MID = "mid"
+CONF_IGNORED_ROOMS = "ignored_rooms"
 CONF_Q = "q"
 CONF_ROOM_AREAS = "room_areas"
+CONF_ROOM_PREFERENCES = "room_preferences"
 CONF_T = "t"
 
 MANUFACTURER = "Botslab / 360"
-PLATFORMS = (Platform.VACUUM, Platform.SENSOR, Platform.BUTTON)
+PLATFORMS = (Platform.VACUUM, Platform.SENSOR, Platform.BUTTON, Platform.SELECT)
 UPDATE_INTERVAL = timedelta(seconds=60)
 
 CONF_CLEAN_TIMES = "clean_times"
+CONF_CLEANING_MODE = "mode"
 CONF_FAN_MODE = "fan_mode"
 CONF_ROOM_IDS = "room_ids"
 CONF_WATER_PUMP = "water_pump"

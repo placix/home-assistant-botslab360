@@ -92,6 +92,7 @@ Currently active platforms are:
 - vacuum
 - sensor
 - button
+- select
 
 Room-cleaning buttons are native Home Assistant button entities.
 
@@ -105,6 +106,22 @@ Device and Area structure:
 - mappings use stable robot/room keys and Home Assistant Area IDs
 - explicit user mappings, including an unassigned room, must not be overwritten by
   later automatic matching
+- rooms may be explicitly ignored using stable robot/room keys
+- ignored rooms are not exposed as active room child devices or entities
+- non-ignored rooms may expose native cleaning-setting entities
+- current per-room settings are applied through the public `RoomCleaningSettings`
+  API
+- do not invent unsupported room-cleaning protocol settings
+
+Current room cleaning-mode mapping:
+
+- `1` = sweep and mop (provisional)
+- `2` = sweep (verified on a real robot)
+- `3` = mop (provisional)
+
+Derive protocol values from the public library `RoomCleaningMode` enum rather
+than duplicating this mapping in integration code. Values `1` and `3` remain
+provisional pending real-device verification.
 
 Each room button must:
 

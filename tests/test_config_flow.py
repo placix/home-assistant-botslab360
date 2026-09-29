@@ -17,7 +17,13 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import area_registry as ar
-from homeassistant.helpers.selector import AreaSelector, TextSelectorType
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.selector import (
+    AreaSelector,
+    BooleanSelector,
+    TextSelectorType,
+)
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360 import take_authenticated_client
@@ -27,7 +33,9 @@ from custom_components.botslab360.const import (
     CONF_CACHED_Q,
     CONF_CACHED_T,
     CONF_DEVICE_IDENTITY,
+    CONF_IGNORED_ROOMS,
     CONF_ROOM_AREAS,
+    CONF_ROOM_PREFERENCES,
     DATA_AUTHENTICATED_CLIENTS,
     DOMAIN,
 )
@@ -102,9 +110,21 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
             marker.schema: (marker, selector)
             for marker, selector in result["data_schema"].schema.items()
         }
-        assert set(fields) == {"Bad", "Closet"}
+        assert set(fields) == {
+            "Bad",
+            "Bad - Ignore room / Raum ignorieren",
+            "Closet",
+            "Closet - Ignore room / Raum ignorieren",
+        }
         assert all(
-            isinstance(selector, AreaSelector) for _, selector in fields.values()
+            isinstance(fields[name][1], AreaSelector) for name in ("Bad", "Closet")
+        )
+        assert all(
+            isinstance(
+                fields[f"{name} - Ignore room / Raum ignorieren"][1],
+                BooleanSelector,
+            )
+            for name in ("Bad", "Closet")
         )
         result = await _submit_room_areas(hass, result)
         await hass.async_block_till_done()
@@ -117,7 +137,9 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
         CONF_ROOM_AREAS: {
             f"{TEST_DEVICE.id}:1": None,
             f"{TEST_DEVICE.id}:6": None,
-        }
+        },
+        CONF_IGNORED_ROOMS: [],
+        CONF_ROOM_PREFERENCES: {},
     }
     assert "region" not in result["data"]
     assert "qid" not in result["data"]
@@ -265,7 +287,12 @@ async def test_setup_room_area_defaults_and_persistence(hass, mock_client) -> No
     room_areas = await _submit_user_flow(hass)
     fields = {marker.schema: marker for marker in room_areas["data_schema"].schema}
 
-    assert set(fields) == {"Bad", "Closet"}
+    assert set(fields) == {
+        "Bad",
+        "Bad - Ignore room / Raum ignorieren",
+        "Closet",
+        "Closet - Ignore room / Raum ignorieren",
+    }
     assert fields["Bad"].description["suggested_value"] == bathroom.id
     assert fields["Closet"].description is None
 
@@ -282,6 +309,24 @@ async def test_setup_room_area_defaults_and_persistence(hass, mock_client) -> No
         f"{TEST_DEVICE.id}:6": storage.id,
     }
     assert "Closet" not in result["options"][CONF_ROOM_AREAS]
+
+
+async def test_setup_can_ignore_room_with_stable_robot_room_key(
+    hass, mock_client
+) -> None:
+    """Test setup persists ignore state and omits the ignored room runtime."""
+
+    room_areas = await _submit_user_flow(hass)
+    result = await _submit_room_areas(
+        hass,
+        room_areas,
+        {"Bad - Ignore room / Raum ignorieren": True},
+    )
+    await hass.async_block_till_done()
+
+    assert result["options"][CONF_IGNORED_ROOMS] == [f"{TEST_DEVICE.id}:1"]
+    assert hass.states.get("button.bad_clean_bad") is None
+    assert hass.states.get("button.closet_clean_closet") is not None
 
 
 async def test_options_flow_changes_and_clears_room_areas(hass, mock_client) -> None:
@@ -321,6 +366,87 @@ async def test_options_flow_changes_and_clears_room_areas(hass, mock_client) -> 
         f"{TEST_DEVICE.id}:6": bathroom.id,
     }
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_options_flow_ignores_and_reenables_existing_room(
+    hass, mock_client
+) -> None:
+    """Test Options removes and cleanly recreates room registry objects."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_ACCOUNT_FINGERPRINT,
+        data=TEST_NATIVE_ENTRY_DATA,
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    original_child = device_registry.async_get_child_device_by_identifier(
+        (DOMAIN, f"{TEST_DEVICE.id}_room_1"),
+        entry.entry_id,
+    )
+    assert original_child is not None
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"Bad - Ignore room / Raum ignorieren": True},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_IGNORED_ROOMS] == [f"{TEST_DEVICE.id}:1"]
+    assert hass.states.get("button.bad_clean_bad") is None
+    assert hass.states.get("button.closet_clean_closet") is not None
+    assert (
+        entity_registry.async_get_entity_id(
+            "button",
+            DOMAIN,
+            f"{TEST_DEVICE.id}_room_1_clean",
+        )
+        is None
+    )
+    assert (
+        device_registry.async_get_child_device_by_identifier(
+            (DOMAIN, f"{TEST_DEVICE.id}_room_1"),
+            entry.entry_id,
+        )
+        is None
+    )
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("button.bad_clean_bad") is None
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"Bad - Ignore room / Raum ignorieren": False},
+    )
+    await hass.async_block_till_done()
+
+    assert entry.options[CONF_IGNORED_ROOMS] == []
+    assert hass.states.get("button.bad_clean_bad") is not None
+    assert hass.states.get("button.closet_clean_closet") is not None
+    recreated_child = device_registry.async_get_child_device_by_identifier(
+        (DOMAIN, f"{TEST_DEVICE.id}_room_1"),
+        entry.entry_id,
+    )
+    assert recreated_child is not None
+    assert (
+        len(
+            [
+                child
+                for child in dr.async_child_entries_for_config_entry(
+                    device_registry, entry.entry_id
+                )
+                if (DOMAIN, f"{TEST_DEVICE.id}_room_1") in child.identifiers
+            ]
+        )
+        == 1
+    )
 
 
 async def test_incorrect_captcha_stays_in_captcha_step(hass, mock_client) -> None:
