@@ -79,14 +79,6 @@
       }
     },
     "select": {
-      "room_mode": {
-        "name": "Reinigungsmodus",
-        "state": {
-          "1": "Fegen + Wischen",
-          "2": "Fegen",
-          "3": "Wischen"
-        }
-      },
       "room_fan_mode": {
         "name": "Saugstärke",
         "state": {

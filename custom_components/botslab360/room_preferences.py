@@ -7,7 +7,6 @@ from typing import Any
 
 from botslab360 import (
     ROOM_CLEAN_TIMES,
-    RoomCleaningMode,
     RoomCleaningSettings,
     RoomFanMode,
     RoomWaterLevel,
@@ -16,16 +15,15 @@ from botslab360 import (
 from .areas import DiscoveredRoom
 from .const import (
     CONF_CLEAN_TIMES,
-    CONF_CLEANING_MODE,
     CONF_FAN_MODE,
     CONF_ROOM_PREFERENCES,
     CONF_WATER_PUMP,
+    LEGACY_CONF_CLEANING_MODE,
 )
 
 FAN_MODE_OPTIONS = tuple(mode.value for mode in RoomFanMode)
 CLEAN_TIMES_OPTIONS = tuple(ROOM_CLEAN_TIMES)
 WATER_LEVEL_OPTIONS = tuple(level.value for level in RoomWaterLevel)
-CLEANING_MODE_OPTIONS = tuple(mode.value for mode in RoomCleaningMode)
 
 
 def room_preference_key(discovered_room: DiscoveredRoom) -> str:
@@ -54,7 +52,6 @@ def room_cleaning_settings(
     """Build public library settings from HA preferences and robot templates."""
 
     return RoomCleaningSettings(
-        mode=room_preference_value(options, discovered_room, CONF_CLEANING_MODE),
         clean_times=room_preference_value(options, discovered_room, CONF_CLEAN_TIMES),
         fan_mode=room_preference_value(options, discovered_room, CONF_FAN_MODE),
         water_pump=room_preference_value(options, discovered_room, CONF_WATER_PUMP),
@@ -72,7 +69,11 @@ def update_room_preference(
     if not _is_valid(setting, value):
         raise ValueError(f"Unsupported room preference: {setting}={value!r}")
     preferences = {
-        key: dict(room_values)
+        key: {
+            room_setting: room_value
+            for room_setting, room_value in room_values.items()
+            if room_setting != LEGACY_CONF_CLEANING_MODE
+        }
         for key, room_values in options.get(CONF_ROOM_PREFERENCES, {}).items()
     }
     room_values = preferences.setdefault(room_preference_key(discovered_room), {})
@@ -83,12 +84,6 @@ def update_room_preference(
 def _is_valid(setting: str, value: object) -> bool:
     if setting == CONF_FAN_MODE:
         return isinstance(value, str) and value in FAN_MODE_OPTIONS
-    if setting == CONF_CLEANING_MODE:
-        return (
-            isinstance(value, int)
-            and not isinstance(value, bool)
-            and value in CLEANING_MODE_OPTIONS
-        )
     if setting == CONF_CLEAN_TIMES:
         return (
             isinstance(value, int)
@@ -102,3 +97,27 @@ def _is_valid(setting: str, value: object) -> bool:
             and value in WATER_LEVEL_OPTIONS
         )
     return False
+
+
+def remove_legacy_cleaning_mode_preferences(
+    options: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Remove the retired cleaning-mode preference without changing other options."""
+
+    stored = options.get(CONF_ROOM_PREFERENCES)
+    if not isinstance(stored, Mapping):
+        return dict(options)
+    changed = False
+    preferences: dict[str, Any] = {}
+    for key, room_values in stored.items():
+        if not isinstance(room_values, Mapping):
+            preferences[key] = room_values
+            continue
+        cleaned = dict(room_values)
+        if LEGACY_CONF_CLEANING_MODE in cleaned:
+            cleaned.pop(LEGACY_CONF_CLEANING_MODE)
+            changed = True
+        preferences[key] = cleaned
+    if not changed:
+        return dict(options)
+    return {**options, CONF_ROOM_PREFERENCES: preferences}

@@ -108,20 +108,24 @@ Device and Area structure:
   later automatic matching
 - rooms may be explicitly ignored using stable robot/room keys
 - ignored rooms are not exposed as active room child devices or entities
-- non-ignored rooms may expose native cleaning-setting entities
+- non-ignored rooms may expose native suction, pass-count, and water-level
+  setting entities
 - current per-room settings are applied through the public `RoomCleaningSettings`
   API
 - do not invent unsupported room-cleaning protocol settings
 
-Current room cleaning-mode mapping:
+`SweepArea.mode` is a nullable vendor string used by carpet-related behavior in
+the analyzed Android app. It is not a verified room sweep/mop selector and must
+not be exposed as one or sent as a numeric room preference.
 
-- `1` = sweep and mop (provisional)
-- `2` = sweep (verified on a real robot)
-- `3` = mop (provisional)
+The separate `SweepStrategy.cleanMode` has partial static evidence for `1` =
+mop and `2` = sweep, but its room-cleaning request path is not verified. Do not
+wire it into Home Assistant until capture-backed evidence establishes that path.
 
-Derive protocol values from the public library `RoomCleaningMode` enum rather
-than duplicating this mapping in integration code. Values `1` and `3` remain
-provisional pending real-device verification.
+The next verification target is a vendor-app capture of the same room for
+sweep, mop, and sweep plus mop, comparing `MapInfo.smartArea`, any
+`SweepStrategy`, the exact `setAreaAndCleaning` request, and immediately
+preceding related commands.
 
 Each room button must:
 

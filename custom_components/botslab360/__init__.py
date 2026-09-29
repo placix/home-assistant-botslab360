@@ -37,6 +37,7 @@ from .const import (
 )
 from .coordinator import Botslab360Coordinator
 from .map import Botslab360MapCache
+from .room_preferences import remove_legacy_cleaning_mode_preferences
 from .services import async_register_services
 
 
@@ -250,6 +251,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
             translation_domain=DOMAIN,
             translation_key="cannot_connect",
         ) from err
+
+    normalized_options = remove_legacy_cleaning_mode_preferences(entry.options)
+    if normalized_options != dict(entry.options):
+        hass.config_entries.async_update_entry(entry, options=normalized_options)
 
     prepared_rooms = async_prepare_room_devices(
         hass,

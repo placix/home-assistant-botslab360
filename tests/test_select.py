@@ -14,12 +14,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360.const import (
     CONF_CLEAN_TIMES,
-    CONF_CLEANING_MODE,
     CONF_FAN_MODE,
     CONF_IGNORED_ROOMS,
     CONF_ROOM_PREFERENCES,
     CONF_WATER_PUMP,
     DOMAIN,
+    LEGACY_CONF_CLEANING_MODE,
 )
 
 from .conftest import TEST_CREDENTIALS, TEST_DEVICE, TEST_ROOMS, make_status
@@ -68,15 +68,21 @@ async def test_room_selects_use_robot_templates_and_stable_unique_ids(
     await _setup_entry(hass)
 
     fan = _room_select(hass, 1, CONF_FAN_MODE)
-    mode = _room_select(hass, 1, CONF_CLEANING_MODE)
     passes = _room_select(hass, 1, CONF_CLEAN_TIMES)
     water = _room_select(hass, 1, CONF_WATER_PUMP)
     assert hass.states.get(fan).state == "max"
-    assert hass.states.get(mode).state == "2"
     assert hass.states.get(passes).state == "2"
     assert hass.states.get(water).state == "1"
     assert er.async_get(hass).async_get(fan).unique_id == (
         f"{TEST_DEVICE.id}_room_1_fan_mode"
+    )
+    assert (
+        er.async_get(hass).async_get_entity_id(
+            SELECT_DOMAIN,
+            DOMAIN,
+            f"{TEST_DEVICE.id}_room_1_{LEGACY_CONF_CLEANING_MODE}",
+        )
+        is None
     )
 
 
@@ -107,14 +113,12 @@ async def test_changed_preferences_persist_and_survive_reload(
 
     entry = await _setup_entry(hass)
     await _select(hass, _room_select(hass, 1, CONF_FAN_MODE), "strong")
-    await _select(hass, _room_select(hass, 1, CONF_CLEANING_MODE), "3")
     await _select(hass, _room_select(hass, 1, CONF_CLEAN_TIMES), "1")
     await _select(hass, _room_select(hass, 1, CONF_WATER_PUMP), "3")
 
     assert entry.options[CONF_ROOM_PREFERENCES] == {
         f"{TEST_DEVICE.id}:1": {
             CONF_FAN_MODE: "strong",
-            CONF_CLEANING_MODE: 3,
             CONF_CLEAN_TIMES: 1,
             CONF_WATER_PUMP: 3,
         }
@@ -123,7 +127,6 @@ async def test_changed_preferences_persist_and_survive_reload(
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get(_room_select(hass, 1, CONF_FAN_MODE)).state == "strong"
-    assert hass.states.get(_room_select(hass, 1, CONF_CLEANING_MODE)).state == "3"
     assert hass.states.get(_room_select(hass, 1, CONF_CLEAN_TIMES)).state == "1"
     assert hass.states.get(_room_select(hass, 1, CONF_WATER_PUMP)).state == "3"
 
@@ -132,10 +135,10 @@ async def test_room_preferences_are_isolated_between_rooms(hass, mock_client) ->
     """Test changing one room cannot alter another room's controls."""
 
     entry = await _setup_entry(hass)
-    await _select(hass, _room_select(hass, 1, CONF_CLEANING_MODE), "3")
+    await _select(hass, _room_select(hass, 1, CONF_FAN_MODE), "strong")
 
-    assert hass.states.get(_room_select(hass, 1, CONF_CLEANING_MODE)).state == "3"
-    assert hass.states.get(_room_select(hass, 6, CONF_CLEANING_MODE)).state == "1"
+    assert hass.states.get(_room_select(hass, 1, CONF_FAN_MODE)).state == "strong"
+    assert hass.states.get(_room_select(hass, 6, CONF_FAN_MODE)).state == "auto"
     assert set(entry.options[CONF_ROOM_PREFERENCES]) == {f"{TEST_DEVICE.id}:1"}
 
 
@@ -163,7 +166,6 @@ async def test_clean_button_uses_current_preferred_settings(hass, mock_client) -
     """Test Clean sends exactly one room with its current native settings."""
 
     await _setup_entry(hass)
-    await _select(hass, _room_select(hass, 1, CONF_CLEANING_MODE), "2")
     await _select(hass, _room_select(hass, 1, CONF_FAN_MODE), "strong")
     await _select(hass, _room_select(hass, 1, CONF_CLEAN_TIMES), "2")
     await _select(hass, _room_select(hass, 1, CONF_WATER_PUMP), "2")
@@ -186,10 +188,77 @@ async def test_clean_button_uses_current_preferred_settings(hass, mock_client) -
         [1],
         room_settings={
             1: RoomCleaningSettings(
-                mode=2,
                 fan_mode="strong",
                 clean_times=2,
                 water_pump=2,
+            )
+        },
+    )
+
+
+async def test_legacy_cleaning_mode_preference_and_entity_are_removed(
+    hass, mock_client
+) -> None:
+    """Test 0.2.4 mode state is removed and never reaches room cleaning."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=TEST_CREDENTIALS,
+        options={
+            CONF_ROOM_PREFERENCES: {
+                f"{TEST_DEVICE.id}:1": {
+                    LEGACY_CONF_CLEANING_MODE: 2,
+                    CONF_FAN_MODE: "strong",
+                }
+            }
+        },
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    legacy = registry.async_get_or_create(
+        SELECT_DOMAIN,
+        DOMAIN,
+        f"{TEST_DEVICE.id}_room_1_{LEGACY_CONF_CLEANING_MODE}",
+        config_entry=entry,
+    )
+    retained_fan = registry.async_get_or_create(
+        SELECT_DOMAIN,
+        DOMAIN,
+        f"{TEST_DEVICE.id}_room_1_{CONF_FAN_MODE}",
+        config_entry=entry,
+        suggested_object_id="retained_room_fan",
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert registry.async_get(legacy.entity_id) is None
+    assert registry.async_get(retained_fan.entity_id) is not None
+    assert entry.options[CONF_ROOM_PREFERENCES] == {
+        f"{TEST_DEVICE.id}:1": {CONF_FAN_MODE: "strong"}
+    }
+
+    mock_client.clean_rooms.reset_mock()
+    button = _entity_id(
+        hass,
+        BUTTON_DOMAIN,
+        f"{TEST_DEVICE.id}_room_1_clean",
+    )
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        "press",
+        {ATTR_ENTITY_ID: button},
+        blocking=True,
+    )
+
+    mock_client.clean_rooms.assert_awaited_once_with(
+        TEST_DEVICE,
+        [1],
+        room_settings={
+            1: RoomCleaningSettings(
+                fan_mode="strong",
+                clean_times=2,
+                water_pump=1,
             )
         },
     )
@@ -205,7 +274,6 @@ async def test_ignored_room_exposes_no_selects(hass, mock_client) -> None:
 
     registry = er.async_get(hass)
     for setting in (
-        CONF_CLEANING_MODE,
         CONF_FAN_MODE,
         CONF_CLEAN_TIMES,
         CONF_WATER_PUMP,

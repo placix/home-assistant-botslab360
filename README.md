@@ -23,7 +23,7 @@ for all communication with Botslab services and devices.
 - Error code
 - Fan mode
 - Native room-cleaning buttons
-- Native per-room cleaning mode, suction, pass-count, and water-level controls
+- Native per-room suction, pass-count, and water-level controls
 - Room cleaning through `botslab360.clean_rooms`
 
 This is an early integration. Native 360Robot authentication and the current
@@ -38,13 +38,13 @@ automatically fall back between them.
 
 The integration discovers rooms through `python-botslab360` and creates one
 native Home Assistant button for each room. Pressing a room button starts a
-cleaning run for exactly that room using its selected cleaning mode, suction,
-pass count, and water level. Room controls are grouped on a child device below
+cleaning run for exactly that room using its selected suction, pass count, and
+water level. Room controls are grouped on a child device below
 their vacuum and remain stable when room names change.
 
-Cleaning modes are shown as **Sweep + mop**, **Sweep**, and **Mop**. The vendor
-value for Sweep has been verified on a real robot; the Sweep + mop and Mop
-assignments remain provisional pending real-device verification.
+The vendor `SweepArea.mode` field is not exposed as a cleaning-mode control. In
+the analyzed Android app it is a nullable string used by carpet-related
+behavior, not a verified room Sweep/Mop selector.
 
 The `botslab360.clean_rooms` action remains available for automations that need
 to select one or more room IDs or apply supported per-run cleaning settings.

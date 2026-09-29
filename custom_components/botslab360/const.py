@@ -25,8 +25,8 @@ PLATFORMS = (Platform.VACUUM, Platform.SENSOR, Platform.BUTTON, Platform.SELECT)
 UPDATE_INTERVAL = timedelta(seconds=60)
 
 CONF_CLEAN_TIMES = "clean_times"
-CONF_CLEANING_MODE = "mode"
 CONF_FAN_MODE = "fan_mode"
+LEGACY_CONF_CLEANING_MODE = "mode"
 CONF_ROOM_IDS = "room_ids"
 CONF_WATER_PUMP = "water_pump"
 SERVICE_CLEAN_ROOMS = "clean_rooms"

@@ -79,14 +79,6 @@
       }
     },
     "select": {
-      "room_mode": {
-        "name": "Cleaning mode",
-        "state": {
-          "1": "Sweep + mop",
-          "2": "Sweep",
-          "3": "Mop"
-        }
-      },
       "room_fan_mode": {
         "name": "Suction mode",
         "state": {

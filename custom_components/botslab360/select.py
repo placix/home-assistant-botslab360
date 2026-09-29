@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import ChildDeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -14,16 +15,15 @@ from . import Botslab360ConfigEntry
 from .areas import DiscoveredRoom
 from .const import (
     CONF_CLEAN_TIMES,
-    CONF_CLEANING_MODE,
     CONF_FAN_MODE,
     CONF_WATER_PUMP,
     DOMAIN,
+    LEGACY_CONF_CLEANING_MODE,
 )
 from .coordinator import Botslab360Coordinator
 from .entity import Botslab360Entity
 from .room_preferences import (
     CLEAN_TIMES_OPTIONS,
-    CLEANING_MODE_OPTIONS,
     FAN_MODE_OPTIONS,
     WATER_LEVEL_OPTIONS,
     room_preference_value,
@@ -40,11 +40,22 @@ class RoomSelectDescription:
 
 
 ROOM_SELECTS = (
-    RoomSelectDescription(CONF_CLEANING_MODE, CLEANING_MODE_OPTIONS),
     RoomSelectDescription(CONF_FAN_MODE, FAN_MODE_OPTIONS),
     RoomSelectDescription(CONF_CLEAN_TIMES, CLEAN_TIMES_OPTIONS),
     RoomSelectDescription(CONF_WATER_PUMP, WATER_LEVEL_OPTIONS),
 )
+
+
+def _is_legacy_cleaning_mode_unique_id(unique_id: str) -> bool:
+    """Return whether an entity ID belongs to the retired room mode select."""
+
+    _device_id, separator, room_setting = unique_id.rpartition("_room_")
+    if not separator:
+        return False
+    room_id, separator, setting = room_setting.rpartition("_")
+    return (
+        bool(separator) and room_id.isdigit() and setting == LEGACY_CONF_CLEANING_MODE
+    )
 
 
 async def async_setup_entry(
@@ -53,6 +64,15 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up cleaning preference selects for every active room."""
+
+    registry = er.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            registry_entry.domain == "select"
+            and registry_entry.platform == DOMAIN
+            and _is_legacy_cleaning_mode_unique_id(registry_entry.unique_id)
+        ):
+            registry.async_remove(registry_entry.entity_id)
 
     coordinator = entry.runtime_data.coordinator
     entities: list[Botslab360RoomSelect] = []

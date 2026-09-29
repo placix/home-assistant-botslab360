@@ -185,7 +185,6 @@ async def test_press_cleans_exactly_the_associated_room(hass, mock_client) -> No
         [1],
         room_settings={
             1: RoomCleaningSettings(
-                mode=2,
                 clean_times=2,
                 fan_mode="max",
                 water_pump=1,
