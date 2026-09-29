@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 
-from botslab360 import ApiError, AuthenticationError, Device, RobotStatus
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from botslab360 import ApiError, AuthenticationError, Device, RobotStatus
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import Botslab360Coordinator
@@ -19,9 +20,7 @@ class Botslab360Entity(CoordinatorEntity[Botslab360Coordinator]):
 
     _attr_has_entity_name = True
 
-    def __init__(
-        self, coordinator: Botslab360Coordinator, device: Device
-    ) -> None:
+    def __init__(self, coordinator: Botslab360Coordinator, device: Device) -> None:
         """Initialize the entity."""
 
         super().__init__(coordinator)

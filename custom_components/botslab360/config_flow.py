@@ -6,17 +6,7 @@ import base64
 from dataclasses import dataclass
 from typing import Any
 
-from botslab360 import (
-    ApiError,
-    AuthBackend,
-    AuthenticationError,
-    Botslab360Client,
-    CaptchaChallenge,
-    CaptchaRequired,
-    DeviceIdentity,
-)
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
@@ -27,6 +17,16 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
+)
+
+from botslab360 import (
+    ApiError,
+    AuthBackend,
+    AuthenticationError,
+    Botslab360Client,
+    CaptchaChallenge,
+    CaptchaRequired,
+    DeviceIdentity,
 )
 
 from . import (
@@ -124,9 +124,7 @@ def _legacy_schema() -> vol.Schema:
 def _captcha_schema() -> vol.Schema:
     """Return the captcha continuation schema."""
 
-    return vol.Schema(
-        {vol.Required(CONF_CAPTCHA_CODE): _password_selector()}
-    )
+    return vol.Schema({vol.Required(CONF_CAPTCHA_CODE): _password_selector()})
 
 
 def _identity_data(identity: DeviceIdentity) -> dict[str, str]:
@@ -223,9 +221,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self, _entry_data: dict[str, Any]
-    ) -> ConfigFlowResult:
+    async def async_step_reauth(self, _entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Start reauthentication for an existing entry."""
 
         entry = self._get_reauth_entry()
@@ -386,9 +382,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return self._show_legacy_reauth_form(
                         {"base": "reauth_wrong_account"}
                     )
-                return self._show_native_reauth_form(
-                    {"base": "reauth_wrong_account"}
-                )
+                return self._show_native_reauth_form({"base": "reauth_wrong_account"})
             await async_store_authenticated_client(
                 self.hass,
                 validation.account_fingerprint,

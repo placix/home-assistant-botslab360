@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from botslab360 import ApiError, AuthenticationError, Device
 from homeassistant.components.camera import Camera
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from botslab360 import ApiError, AuthenticationError, Device
 
 from . import Botslab360ConfigEntry
 from .coordinator import Botslab360Coordinator

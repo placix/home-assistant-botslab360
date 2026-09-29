@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from botslab360 import Device, RobotStatus
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -13,14 +12,16 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    EntityCategory,
     PERCENTAGE,
+    EntityCategory,
     UnitOfArea,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
+
+from botslab360 import Device, RobotStatus
 
 from . import Botslab360ConfigEntry
 from .coordinator import Botslab360Coordinator

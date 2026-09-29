@@ -7,9 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from botslab360 import ApiError, AuthenticationError
-from PIL import Image
-
 from homeassistant.const import Platform
+from PIL import Image
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360 import Botslab360RuntimeData
@@ -39,14 +38,17 @@ def test_polygon_renderer_produces_png_calibration_and_selections() -> None:
         assert len(image.getcolors(maxcolors=1_000_000)) > 2
     assert len(rendered.calibration_points) == 3
     assert rendered.calibration_points[0]["vacuum"] == {"x": 0, "y": 0}
-    assert rendered.calibration_points[0]["map"]["x"] > (
-        rendered.calibration_points[1]["map"]["x"]
+    assert (
+        rendered.calibration_points[0]["map"]["x"]
+        > (rendered.calibration_points[1]["map"]["x"])
     )
-    assert rendered.calibration_points[0]["map"]["y"] == (
-        rendered.calibration_points[1]["map"]["y"]
+    assert (
+        rendered.calibration_points[0]["map"]["y"]
+        == (rendered.calibration_points[1]["map"]["y"])
     )
-    assert rendered.calibration_points[0]["map"]["x"] == (
-        rendered.calibration_points[2]["map"]["x"]
+    assert (
+        rendered.calibration_points[0]["map"]["x"]
+        == (rendered.calibration_points[2]["map"]["x"])
     )
     assert rendered.predefined_selections[0] == {
         "id": 1,
@@ -74,9 +76,7 @@ def test_renderer_handles_rooms_without_geometry() -> None:
     assert map_card_selection(room) is None
 
 
-async def test_camera_fetches_once_then_returns_cached_image(
-    hass, mock_client
-) -> None:
+async def test_camera_fetches_once_then_returns_cached_image(hass, mock_client) -> None:
     """Test first-use map retrieval and cached camera attributes."""
 
     entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
@@ -103,9 +103,7 @@ async def test_camera_fetches_once_then_returns_cached_image(
     assert camera.device_info["identifiers"] == {(DOMAIN, TEST_DEVICE.id)}
 
 
-async def test_failed_camera_refresh_retains_last_good_image(
-    hass, mock_client
-) -> None:
+async def test_failed_camera_refresh_retains_last_good_image(hass, mock_client) -> None:
     """Test a map API failure cannot erase the cached rendering."""
 
     entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
@@ -123,9 +121,7 @@ async def test_failed_camera_refresh_retains_last_good_image(
     assert await camera.async_camera_image() == original
 
 
-async def test_camera_authentication_error_starts_reauth(
-    hass, mock_client
-) -> None:
+async def test_camera_authentication_error_starts_reauth(hass, mock_client) -> None:
     """Test map authentication failures start Home Assistant reauth."""
 
     entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)

@@ -2,11 +2,11 @@
 
 from unittest.mock import AsyncMock
 
+import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.components.vacuum import VacuumActivity, VacuumEntityFeature
-from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfArea, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import pytest
 
 from custom_components.botslab360.const import DOMAIN
 from custom_components.botslab360.coordinator import Botslab360Coordinator
@@ -126,8 +126,7 @@ def test_sensor_values_and_metadata(hass, mock_client) -> None:
     assert sensors["cleaned_area"].native_value == 42
     assert sensors["cleaned_area"].device_class is SensorDeviceClass.AREA
     assert (
-        sensors["cleaned_area"].native_unit_of_measurement
-        == UnitOfArea.SQUARE_METERS
+        sensors["cleaned_area"].native_unit_of_measurement == UnitOfArea.SQUARE_METERS
     )
     assert sensors["cleaning_time"].native_value == 321
     assert sensors["cleaning_time"].device_class is SensorDeviceClass.DURATION

@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
 from botslab360 import ApiError, AuthenticationError
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
@@ -68,9 +67,7 @@ async def test_multiple_rooms_create_separate_buttons(hass, mock_client) -> None
     assert len(hass.states.async_all(BUTTON_DOMAIN)) == 2
 
 
-async def test_press_cleans_exactly_the_associated_room(
-    hass, mock_client
-) -> None:
+async def test_press_cleans_exactly_the_associated_room(hass, mock_client) -> None:
     """Test pressing a button delegates one room ID to the public API."""
 
     await _setup_entry(hass)

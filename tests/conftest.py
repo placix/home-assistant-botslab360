@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from botslab360 import (
     Botslab360Client,
     Device,
@@ -148,9 +147,7 @@ def make_mock_client() -> MagicMock:
         return TEST_SESSION
 
     client.authenticate = AsyncMock(side_effect=authenticate)
-    client.continue_authentication = AsyncMock(
-        side_effect=continue_authentication
-    )
+    client.continue_authentication = AsyncMock(side_effect=continue_authentication)
     client.get_devices = AsyncMock(return_value=[TEST_DEVICE])
     client.get_rooms = AsyncMock(return_value=TEST_ROOMS)
     client.clean_rooms = AsyncMock()

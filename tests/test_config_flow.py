@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 import pytest
-
 from botslab360 import (
     ApiError,
     AuthenticationError,
@@ -33,8 +32,8 @@ from custom_components.botslab360.const import (
 
 from .conftest import (
     TEST_ACCOUNT_FINGERPRINT,
-    TEST_CREDENTIALS,
     TEST_CACHED_CREDENTIALS,
+    TEST_CREDENTIALS,
     TEST_DEVICE_IDENTITY,
     TEST_NATIVE_ENTRY_DATA,
     TEST_NATIVE_INPUT,
@@ -244,9 +243,7 @@ async def test_incorrect_captcha_stays_in_captcha_step(hass, mock_client) -> Non
     assert not hass.config_entries.async_entries(DOMAIN)
 
 
-async def test_abandoned_captcha_flow_closes_pending_client(
-    hass, mock_client
-) -> None:
+async def test_abandoned_captcha_flow_closes_pending_client(hass, mock_client) -> None:
     """Test removing a captcha flow closes its retained client."""
 
     mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
@@ -305,9 +302,7 @@ async def test_legacy_reauthentication_updates_entry(hass, mock_client) -> None:
     await mock_client.close()
 
 
-async def test_native_reauthentication_preserves_identity(
-    hass, mock_client
-) -> None:
+async def test_native_reauthentication_preserves_identity(hass, mock_client) -> None:
     """Test native reauth updates credentials without replacing identity."""
 
     entry = MockConfigEntry(
@@ -336,9 +331,9 @@ async def test_native_reauthentication_preserves_identity(
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_EMAIL] == updated[CONF_EMAIL]
     assert entry.data[CONF_PASSWORD] == updated[CONF_PASSWORD]
-    assert entry.data[CONF_DEVICE_IDENTITY] == TEST_NATIVE_ENTRY_DATA[
-        CONF_DEVICE_IDENTITY
-    ]
+    assert (
+        entry.data[CONF_DEVICE_IDENTITY] == TEST_NATIVE_ENTRY_DATA[CONF_DEVICE_IDENTITY]
+    )
     assert entry.data[CONF_AUTH_BACKEND] == "robot360"
     reload_mock.assert_called_once_with(entry.entry_id)
     assert take_authenticated_client(hass, entry.unique_id) is mock_client
@@ -473,9 +468,9 @@ async def test_native_reauth_supports_captcha(hass, mock_client) -> None:
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
-    assert entry.data[CONF_DEVICE_IDENTITY] == TEST_NATIVE_ENTRY_DATA[
-        CONF_DEVICE_IDENTITY
-    ]
+    assert (
+        entry.data[CONF_DEVICE_IDENTITY] == TEST_NATIVE_ENTRY_DATA[CONF_DEVICE_IDENTITY]
+    )
     mock_client.continue_authentication.assert_awaited_once_with(
         TEST_CAPTCHA,
         TEST_CAPTCHA_CODE,

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import voluptuous as vol
-
 from botslab360 import ApiError, AuthenticationError, RoomCleaningSettings
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -130,9 +129,7 @@ async def test_clean_rooms_action_rejects_wrong_entity_target(
     mock_client.clean_rooms.assert_not_awaited()
 
 
-async def test_clean_rooms_action_rejects_multiple_targets(
-    hass, mock_client
-) -> None:
+async def test_clean_rooms_action_rejects_multiple_targets(hass, mock_client) -> None:
     """Test the action enforces exactly one vacuum entity target."""
 
     await _setup_entry(hass)
@@ -153,9 +150,7 @@ async def test_clean_rooms_action_rejects_multiple_targets(
     mock_client.clean_rooms.assert_not_awaited()
 
 
-async def test_clean_rooms_action_rejects_unloaded_target(
-    hass, mock_client
-) -> None:
+async def test_clean_rooms_action_rejects_unloaded_target(hass, mock_client) -> None:
     """Test a registry entry without loaded runtime data is rejected."""
 
     entry = await _setup_entry(hass)
@@ -178,14 +173,16 @@ async def test_clean_rooms_authentication_error_starts_reauth(
 
     entry = await _setup_entry(hass)
     mock_client.clean_rooms.side_effect = AuthenticationError("expired")
-    with patch.object(entry, "async_start_reauth") as start_reauth:
-        with pytest.raises(HomeAssistantError):
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_CLEAN_ROOMS,
-                {ATTR_ENTITY_ID: "vacuum.test_robot", CONF_ROOM_IDS: [1]},
-                blocking=True,
-            )
+    with (
+        patch.object(entry, "async_start_reauth") as start_reauth,
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CLEAN_ROOMS,
+            {ATTR_ENTITY_ID: "vacuum.test_robot", CONF_ROOM_IDS: [1]},
+            blocking=True,
+        )
 
     start_reauth.assert_called_once_with(hass)
 

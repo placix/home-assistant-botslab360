@@ -4,7 +4,6 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from botslab360 import (
     ApiError,
     AuthBackend,
@@ -13,7 +12,7 @@ from botslab360 import (
     CaptchaRequired,
     QihooCredentials,
 )
-from homeassistant.config_entries import ConfigEntryState, SOURCE_REAUTH
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -31,8 +30,8 @@ from custom_components.botslab360.const import (
 from custom_components.botslab360.coordinator import Botslab360Coordinator
 
 from .conftest import (
-    TEST_CREDENTIALS,
     TEST_CACHED_CREDENTIALS,
+    TEST_CREDENTIALS,
     TEST_DEVICE,
     TEST_NATIVE_ENTRY_DATA,
     make_mock_client,
@@ -44,9 +43,7 @@ def _entry() -> MockConfigEntry:
     return MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
 
 
-async def test_coordinator_updates_all_discovered_devices(
-    hass, mock_client
-) -> None:
+async def test_coordinator_updates_all_discovered_devices(hass, mock_client) -> None:
     """Test discovery and polling of every robot."""
 
     second_device = TEST_DEVICE.__class__(
@@ -98,15 +95,9 @@ def test_native_entry_uses_saved_backend_and_identity() -> None:
     assert call.kwargs["email"] == TEST_NATIVE_ENTRY_DATA["email"]
     assert call.kwargs["password"] == TEST_NATIVE_ENTRY_DATA["password"]
     assert call.kwargs["backend"] is AuthBackend.ROBOT360
-    assert call.kwargs["device_identity"].mid == (
-        "0123456789abcdef0123456789abcdef"
-    )
-    assert call.kwargs["device_identity"].android_id == (
-        "0123456789abcdef"
-    )
-    assert call.kwargs["device_identity"].m2 == (
-        "00000000-0000-4000-8000-000000000001"
-    )
+    assert call.kwargs["device_identity"].mid == ("0123456789abcdef0123456789abcdef")
+    assert call.kwargs["device_identity"].android_id == ("0123456789abcdef")
+    assert call.kwargs["device_identity"].m2 == ("00000000-0000-4000-8000-000000000001")
     assert "region" not in call.kwargs
 
 
@@ -140,9 +131,7 @@ async def test_coordinator_translates_api_error(hass, mock_client) -> None:
         await coordinator._async_update_data()
 
 
-async def test_coordinator_translates_authentication_error(
-    hass, mock_client
-) -> None:
+async def test_coordinator_translates_authentication_error(hass, mock_client) -> None:
     """Test an authentication error triggers Home Assistant reauth."""
 
     coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
@@ -210,9 +199,7 @@ async def test_native_entry_without_handoff_authenticates_after_restart(
     mock_client.close.assert_awaited_once()
 
 
-async def test_native_restart_uses_cached_q_t_without_quc_login(
-    hass, caplog
-) -> None:
+async def test_native_restart_uses_cached_q_t_without_quc_login(hass, caplog) -> None:
     """Test a restart establishes a fresh session directly from cached Q/T."""
 
     cached_client = make_mock_client()
@@ -289,8 +276,9 @@ async def test_invalid_native_cache_falls_back_and_refreshes_q_t(
     assert entry.data[CONF_CACHED_Q] == refreshed.q
     assert entry.data[CONF_CACHED_T] == refreshed.t
     call = client_class.from_credentials.call_args
-    assert call.kwargs["device_identity"].mid == (
-        TEST_NATIVE_ENTRY_DATA["device_identity"]["mid"]
+    assert (
+        call.kwargs["device_identity"].mid
+        == (TEST_NATIVE_ENTRY_DATA["device_identity"]["mid"])
     )
 
     assert await hass.config_entries.async_unload(entry.entry_id)

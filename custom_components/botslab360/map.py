@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from io import BytesIO
-import math
 from typing import Any
 
-from botslab360 import Botslab360Client, Device, Room
+from homeassistant.core import HomeAssistant
 from PIL import Image, ImageDraw
 
-from homeassistant.core import HomeAssistant
+from botslab360 import Botslab360Client, Device, Room
 
 MAP_SIZE = 768
 MAP_MARGIN = 32
@@ -191,9 +191,7 @@ def render_room_map(rooms: list[Room] | tuple[Room, ...]) -> RenderedRoomMap:
                 width=3,
             )
             centroid = polygon_centroid(vertices)
-            label_point = transform.map_point(
-                (round(centroid[0]), round(centroid[1]))
-            )
+            label_point = transform.map_point((round(centroid[0]), round(centroid[1])))
             label = room.name or str(room.id)
             bounds = draw.textbbox((0, 0), label)
             label_width = bounds[2] - bounds[0]
@@ -239,9 +237,7 @@ class Botslab360MapCache:
         lock = self._locks.setdefault(device.id, asyncio.Lock())
         async with lock:
             rooms = await self._client.get_rooms(device)
-            rendered = await self._hass.async_add_executor_job(
-                render_room_map, rooms
-            )
+            rendered = await self._hass.async_add_executor_job(render_room_map, rooms)
             self._maps[device.id] = rendered
             return rendered
 

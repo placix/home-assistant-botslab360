@@ -6,17 +6,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.typing import ConfigType
+
 from botslab360 import (
     AuthBackend,
     AuthenticationError,
     Botslab360Client,
     DeviceIdentity,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_AUTH_BACKEND,
@@ -94,9 +95,7 @@ async def async_discard_authenticated_client(
 
     domain_data = hass.data.get(DOMAIN)
     clients = (
-        domain_data.get(DATA_AUTHENTICATED_CLIENTS)
-        if domain_data is not None
-        else None
+        domain_data.get(DATA_AUTHENTICATED_CLIENTS) if domain_data is not None else None
     )
     if clients is not None and clients.get(account_fingerprint) is client:
         clients.pop(account_fingerprint)
@@ -160,10 +159,7 @@ def _async_update_cached_credentials(
 ) -> None:
     """Persist changed reusable Q/T credentials for native entries only."""
 
-    if (
-        CONF_EMAIL not in entry.data
-        or (credentials := client.credentials) is None
-    ):
+    if CONF_EMAIL not in entry.data or (credentials := client.credentials) is None:
         return
     if (
         entry.data.get(CONF_CACHED_Q) == credentials.q
@@ -180,9 +176,7 @@ def _async_update_cached_credentials(
     )
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: Botslab360ConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -> bool:
     """Set up Botslab 360 from a config entry."""
 
     client = take_authenticated_client(hass, entry.unique_id)
@@ -244,9 +238,7 @@ async def async_setup_entry(
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: Botslab360ConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -> bool:
     """Unload a Botslab 360 config entry."""
 
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):

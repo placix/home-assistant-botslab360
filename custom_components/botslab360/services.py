@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 import voluptuous as vol
+from homeassistant.components.vacuum import DOMAIN as VACUUM_DOMAIN
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 
 from botslab360 import (
     ROOM_CLEAN_TIMES,
@@ -12,13 +19,6 @@ from botslab360 import (
     RoomFanMode,
     RoomWaterLevel,
 )
-from homeassistant.components.vacuum import DOMAIN as VACUUM_DOMAIN
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_CLEAN_TIMES,
@@ -51,12 +51,8 @@ CLEAN_ROOMS_SCHEMA = vol.Schema(
             [_strict_int],
             vol.Length(min=1),
         ),
-        vol.Optional(CONF_CLEAN_TIMES): vol.All(
-            _strict_int, vol.In(ROOM_CLEAN_TIMES)
-        ),
-        vol.Optional(CONF_FAN_MODE): vol.In(
-            [mode.value for mode in RoomFanMode]
-        ),
+        vol.Optional(CONF_CLEAN_TIMES): vol.All(_strict_int, vol.In(ROOM_CLEAN_TIMES)),
+        vol.Optional(CONF_FAN_MODE): vol.In([mode.value for mode in RoomFanMode]),
         vol.Optional(CONF_WATER_PUMP): vol.All(
             _strict_int,
             vol.In([level.value for level in RoomWaterLevel]),
@@ -101,10 +97,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
         room_settings = (
             {room_id: settings for room_id in room_ids}
-            if any(
-                value is not None
-                for value in (clean_times, fan_mode, water_pump)
-            )
+            if any(value is not None for value in (clean_times, fan_mode, water_pump))
             else None
         )
         try:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from botslab360 import Device, RobotStatus
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
     VacuumActivity,
@@ -12,6 +11,8 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from botslab360 import Device, RobotStatus
 
 from . import Botslab360ConfigEntry
 from .coordinator import Botslab360Coordinator
@@ -88,9 +89,7 @@ class Botslab360Vacuum(Botslab360Entity, StateVacuumEntity):
 
         return vacuum_activity(self.robot_status)
 
-    async def _async_command(
-        self, command: Callable[[str], Awaitable[None]]
-    ) -> None:
+    async def _async_command(self, command: Callable[[str], Awaitable[None]]) -> None:
         """Run a library command and refresh status after success."""
 
         await self._async_run_command(

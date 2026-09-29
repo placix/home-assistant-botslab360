@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from botslab360 import ApiError, AuthenticationError, Device, Room
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, PlatformNotReady
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from botslab360 import ApiError, AuthenticationError, Device, Room
 
 from . import Botslab360ConfigEntry
 from .const import DOMAIN
@@ -27,8 +28,7 @@ async def async_setup_entry(
         for device in coordinator.devices.values():
             rooms = await coordinator.client.get_rooms(device)
             entities.extend(
-                Botslab360RoomButton(entry, coordinator, device, room)
-                for room in rooms
+                Botslab360RoomButton(entry, coordinator, device, room) for room in rooms
             )
     except AuthenticationError as err:
         raise ConfigEntryAuthFailed(
