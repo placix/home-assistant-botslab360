@@ -306,6 +306,54 @@ LF/CRLF informational warnings on Windows are not by themselves a reason to rewr
 
 ---
 
+## Release notes
+
+Every GitHub Release must contain a meaningful, non-empty release description.
+A generated changelog link may be included, but it must not be the only release
+description.
+
+Before creating a release:
+
+1. Review the commits and changes since the previous release or tag.
+2. Summarize only user-relevant or developer-relevant changes actually included
+   in the release.
+3. Mention important compatibility, dependency, migration, authentication,
+   configuration, or behavioral changes when applicable.
+4. Mention notable bug fixes and newly added features.
+5. Do not invent changes that are not present in the diff or history.
+6. Do not include credentials, internal secrets, or sensitive diagnostic details.
+
+For Home Assistant integration releases, mention when applicable:
+
+- new or changed entities
+- Config Flow or Options Flow changes
+- authentication changes
+- minimum Home Assistant version requirements
+- `botslab360` dependency version changes
+- migrations affecting existing installations
+- compatibility of existing entity IDs and unique IDs
+
+Use a concise structure such as:
+
+```markdown
+## What's changed
+
+- Added ...
+- Fixed ...
+- Improved ...
+
+## Compatibility
+
+- Requires ...
+- No migration required.
+```
+
+Omit sections that are not relevant. For development or test releases, state
+explicitly that the release is intended for testing when appropriate. After
+creating the release, verify that the GitHub Release body is not empty.
+
+---
+
 ## Git workflow
 
 At the beginning of a task:
