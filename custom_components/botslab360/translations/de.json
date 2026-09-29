@@ -8,9 +8,7 @@
       "reauth_successful": "Die erneute Authentifizierung war erfolgreich."
     },
     "error": {
-      "ambiguous_discovered_device": "Mehr als ein Roboter in diesem Konto hat die erkannte Netzwerkidentität gemeldet.",
       "cannot_connect": "Verbindung fehlgeschlagen.",
-      "discovered_device_not_found": "Der erkannte Roboter wurde in diesem Konto nicht gefunden. Melde dich mit dem Konto an, zu dem er gehört.",
       "invalid_auth": "Authentifizierung fehlgeschlagen.",
       "invalid_captcha": "Der Bestätigungscode wurde nicht akzeptiert.",
       "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden.",

@@ -8,9 +8,7 @@
       "reauth_successful": "Reauthentication was successful."
     },
     "error": {
-      "ambiguous_discovered_device": "More than one robot in this account reported the discovered network identity.",
       "cannot_connect": "Failed to connect.",
-      "discovered_device_not_found": "The discovered robot was not found in this account. Sign in with the account that owns it.",
       "invalid_auth": "Authentication failed.",
       "invalid_captcha": "The verification code was not accepted.",
       "no_devices": "No Botslab devices were found for this account.",

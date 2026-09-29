@@ -67,14 +67,6 @@ class NoDevicesError(Exception):
     """Raised when an account contains no supported devices."""
 
 
-class DiscoveredDeviceNotFoundError(Exception):
-    """Raised when the discovered robot does not belong to the account."""
-
-
-class AmbiguousDiscoveredDeviceError(Exception):
-    """Raised when more than one account robot reports the discovered MAC."""
-
-
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
     """Validated account details needed by the config flow."""
@@ -211,15 +203,13 @@ async def _async_discover(
     devices = await client.get_devices()
     if not devices:
         raise NoDevicesError
-    network_macs: dict[str, str] = {}
+    verified_network_macs: dict[str, str] = {}
     if discovery_mac is not None:
         matching_device_ids: list[str] = []
         for device in devices:
             try:
                 network_info = await client.get_network_info(device)
-            except AuthenticationError:
-                raise
-            except (ApiError, TimeoutError, OSError) as err:
+            except (AuthenticationError, ApiError, TimeoutError, OSError) as err:
                 _LOGGER.debug(
                     "Could not verify network identity for account robot %s: %s",
                     device.id,
@@ -228,13 +218,21 @@ async def _async_discover(
                 continue
             if (network_mac := _normalize_mac(network_info.station_mac)) is None:
                 continue
-            network_macs[device.id] = network_mac
             if network_mac == discovery_mac:
                 matching_device_ids.append(device.id)
-        if not matching_device_ids:
-            raise DiscoveredDeviceNotFoundError
-        if len(matching_device_ids) > 1:
-            raise AmbiguousDiscoveredDeviceError
+        if len(matching_device_ids) == 1:
+            verified_device_id = matching_device_ids[0]
+            verified_network_macs[verified_device_id] = discovery_mac
+            _LOGGER.debug(
+                "DHCP robot %s matched account robot %s",
+                discovery_mac,
+                verified_device_id,
+            )
+        else:
+            _LOGGER.debug(
+                "DHCP robot could not be uniquely matched to an account robot; "
+                "continuing account setup without LAN association"
+            )
     rooms: list[DiscoveredRoom] = []
     if include_rooms:
         for device in devices:
@@ -246,7 +244,7 @@ async def _async_discover(
         title=devices[0].name or "Botslab 360",
         devices=tuple(devices),
         rooms=tuple(rooms),
-        network_macs=tuple(network_macs.items()),
+        network_macs=tuple(verified_network_macs.items()),
     )
 
 
@@ -507,14 +505,6 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self._async_return_to_origin("no_devices")
                 except AuthenticationError:
                     return await self._async_return_to_origin("invalid_auth")
-                except DiscoveredDeviceNotFoundError:
-                    return await self._async_return_to_origin(
-                        "discovered_device_not_found"
-                    )
-                except AmbiguousDiscoveredDeviceError:
-                    return await self._async_return_to_origin(
-                        "ambiguous_discovered_device"
-                    )
                 except (ApiError, TimeoutError, OSError):
                     return await self._async_return_to_origin("cannot_connect")
                 data = self._pending_data
@@ -558,12 +548,15 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_IGNORED_ROOMS: _ignored_room_keys(fields, user_input),
             CONF_ROOM_PREFERENCES: {},
         }
+        verified_network_macs = (
+            dict(validation.network_macs) if self._discovery_mac is not None else None
+        )
         self._clear_pending_state()
         await async_store_authenticated_client(
             self.hass,
             validation.account_fingerprint,
             client,
-            dict(validation.network_macs),
+            verified_network_macs,
         )
         try:
             return self.async_create_entry(
@@ -609,10 +602,6 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._last_errors["base"] = "invalid_auth"
         except NoDevicesError:
             self._last_errors["base"] = "no_devices"
-        except DiscoveredDeviceNotFoundError:
-            self._last_errors["base"] = "discovered_device_not_found"
-        except AmbiguousDiscoveredDeviceError:
-            self._last_errors["base"] = "ambiguous_discovered_device"
         except (ApiError, TimeoutError, OSError):
             self._last_errors["base"] = "cannot_connect"
         except (KeyError, ValueError):

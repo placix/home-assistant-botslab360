@@ -92,7 +92,7 @@ async def async_store_authenticated_client(
     if previous is not None and previous is not client:
         await previous.close()
     clients[account_fingerprint] = client
-    if network_macs:
+    if network_macs is not None:
         authenticated_network_macs: dict[str, dict[str, str]] = domain_data.setdefault(
             DATA_AUTHENTICATED_NETWORK_MACS, {}
         )
@@ -121,17 +121,17 @@ def take_authenticated_client(
 def take_authenticated_network_macs(
     hass: HomeAssistant,
     account_fingerprint: str | None,
-) -> dict[str, str]:
+) -> dict[str, str] | None:
     """Consume verified robot MAC addresses handed off by a config flow."""
 
     if account_fingerprint is None or not (domain_data := hass.data.get(DOMAIN)):
-        return {}
+        return None
     network_macs: dict[str, dict[str, str]] | None = domain_data.get(
         DATA_AUTHENTICATED_NETWORK_MACS
     )
     if network_macs is None:
-        return {}
-    return network_macs.pop(account_fingerprint, {})
+        return None
+    return network_macs.pop(account_fingerprint, None)
 
 
 async def async_discard_authenticated_client(
@@ -157,14 +157,14 @@ async def _async_register_robot_network_macs(
     hass: HomeAssistant,
     entry: Botslab360ConfigEntry,
     client: Botslab360Client,
-    network_macs: Mapping[str, str],
+    network_macs: Mapping[str, str] | None,
 ) -> None:
     """Best-effort register physical robot MAC connections."""
 
     registry = dr.async_get(hass)
     for device in entry.runtime_data.coordinator.devices.values():
-        network_mac = network_macs.get(device.id)
-        if network_mac is None:
+        network_mac = network_macs.get(device.id) if network_macs is not None else None
+        if network_macs is None:
             try:
                 network_info = await client.get_network_info(device)
             except (AuthenticationError, ApiError, TimeoutError, OSError) as err:

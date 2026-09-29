@@ -38,9 +38,10 @@ automatically fall back between them.
 When Home Assistant detects the narrowly matched 360 CleanRobot X9 DHCP
 signature, setup still requires explicit confirmation and account sign-in. The
 integration compares the discovered network MAC with each robot returned by the
-authenticated account before continuing, so discovery cannot silently configure
-an unrelated account. Existing installations gain the physical robot's MAC
-association on a best-effort basis without storing its current IP address.
+authenticated account. An exact unique match associates the MAC with that
+physical robot. If network verification is unavailable or inconclusive, account
+setup continues without guessing the association and retries it during a later
+setup. The robot's current IP address is not stored.
 
 ## Room cleaning
 
