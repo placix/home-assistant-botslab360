@@ -6,13 +6,33 @@ from collections.abc import Awaitable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import (
+    DeviceEntry,
+    DeviceInfo,
+    DeviceRegistry,
+)
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from botslab360 import ApiError, AuthenticationError, Device, RobotStatus
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import Botslab360Coordinator
+
+
+def async_get_or_create_robot_device(
+    registry: DeviceRegistry,
+    config_entry_id: str,
+    device: Device,
+) -> DeviceEntry:
+    """Register and return a physical robot device."""
+
+    return registry.async_get_or_create(
+        config_entry_id=config_entry_id,
+        identifiers={(DOMAIN, device.id)},
+        manufacturer=MANUFACTURER,
+        model=device.model or None,
+        name=device.name or f"Botslab 360 {device.id}",
+    )
 
 
 class Botslab360Entity(CoordinatorEntity[Botslab360Coordinator]):

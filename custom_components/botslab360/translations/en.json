@@ -36,6 +36,10 @@
         "description": "Enter new Q and T credentials for this legacy account entry.",
         "title": "Reauthenticate Botslab 360"
       },
+      "room_areas": {
+        "description": "Assign the rooms detected by the robot to Areas in Home Assistant. Exact matches have already been selected. A room left empty has no explicit Area and may inherit the physical robot's Area in Home Assistant.",
+        "title": "Room assignment"
+      },
       "user": {
         "data": {
           "backend": "Account type",
@@ -44,6 +48,19 @@
         },
         "description": "Select your account type and enter its email address and password.",
         "title": "Connect to Botslab 360"
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "cannot_connect": "Failed to connect.",
+      "invalid_auth": "Authentication failed. Reauthentication has been started.",
+      "no_devices": "No Botslab devices were found for this account."
+    },
+    "step": {
+      "init": {
+        "description": "Assign the rooms detected by the robot to Areas in Home Assistant. Existing choices are preserved and exact matches are suggested only for new rooms. Clear a selection to remove the room's explicit Area. An unassigned child may inherit the physical robot's Area in Home Assistant.",
+        "title": "Room assignment"
       }
     }
   },

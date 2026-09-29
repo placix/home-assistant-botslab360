@@ -95,9 +95,20 @@ Currently active platforms are:
 
 Room-cleaning buttons are native Home Assistant button entities.
 
+Device and Area structure:
+
+- the physical robot is the parent device
+- each robot room is a Home Assistant child device
+- each room-cleaning button belongs to its room child device
+- exact normalized room/Area name matching is attempted automatically
+- users review and override mappings during setup and through integration options
+- mappings use stable robot/room keys and Home Assistant Area IDs
+- explicit user mappings, including an unassigned room, must not be overwritten by
+  later automatic matching
+
 Each room button must:
 
-- belong to the same Home Assistant device as its vacuum
+- belong to the corresponding room child device below the vacuum
 - use a stable unique ID containing robot/device ID and room ID
 - use the room name for presentation
 - call the public `client.clean_rooms(device, [room_id])` API

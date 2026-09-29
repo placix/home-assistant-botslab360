@@ -36,6 +36,10 @@
         "description": "Gib neue Q- und T-Zugangsdaten für diesen bestehenden Eintrag ein.",
         "title": "Botslab 360 erneut authentifizieren"
       },
+      "room_areas": {
+        "description": "Ordne die vom Roboter erkannten Räume den Bereichen in Home Assistant zu. Erkannte exakte Übereinstimmungen wurden bereits vorausgewählt. Ein Raum ohne Auswahl hat keinen eigenen Bereich und kann in Home Assistant den Bereich des physischen Roboters erben.",
+        "title": "Raumzuordnung"
+      },
       "user": {
         "data": {
           "backend": "Kontotyp",
@@ -44,6 +48,19 @@
         },
         "description": "Wähle den Kontotyp und gib E-Mail-Adresse und Passwort ein.",
         "title": "Mit Botslab 360 verbinden"
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen.",
+      "invalid_auth": "Authentifizierung fehlgeschlagen. Die erneute Authentifizierung wurde gestartet.",
+      "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden."
+    },
+    "step": {
+      "init": {
+        "description": "Ordne die vom Roboter erkannten Räume den Bereichen in Home Assistant zu. Bestehende Zuordnungen bleiben erhalten; exakte Treffer werden nur für neue Räume vorgeschlagen. Leere eine Auswahl, um den eigenen Bereich des Raums zu entfernen. Ein nicht zugeordnetes Child Device kann in Home Assistant den Bereich des physischen Roboters erben.",
+        "title": "Raumzuordnung"
       }
     }
   },

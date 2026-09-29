@@ -15,6 +15,7 @@ CONF_IDENTITY_ANDROID_ID = "android_id"
 CONF_IDENTITY_M2 = "m2"
 CONF_IDENTITY_MID = "mid"
 CONF_Q = "q"
+CONF_ROOM_AREAS = "room_areas"
 CONF_T = "t"
 
 MANUFACTURER = "Botslab / 360"

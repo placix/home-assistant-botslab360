@@ -16,7 +16,8 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers.selector import TextSelectorType
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers.selector import AreaSelector, TextSelectorType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360 import take_authenticated_client
@@ -26,6 +27,7 @@ from custom_components.botslab360.const import (
     CONF_CACHED_Q,
     CONF_CACHED_T,
     CONF_DEVICE_IDENTITY,
+    CONF_ROOM_AREAS,
     DATA_AUTHENTICATED_CLIENTS,
     DOMAIN,
 )
@@ -34,6 +36,7 @@ from .conftest import (
     TEST_ACCOUNT_FINGERPRINT,
     TEST_CACHED_CREDENTIALS,
     TEST_CREDENTIALS,
+    TEST_DEVICE,
     TEST_DEVICE_IDENTITY,
     TEST_NATIVE_ENTRY_DATA,
     TEST_NATIVE_INPUT,
@@ -61,6 +64,15 @@ async def _submit_user_flow(hass, user_input=TEST_NATIVE_INPUT):
     )
 
 
+async def _submit_room_areas(hass, result, user_input=None):
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "room_areas"
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input or {},
+    )
+
+
 @pytest.mark.parametrize("backend", ["robot360", "botslab"])
 async def test_successful_config_flow(hass, mock_client, backend) -> None:
     """Test authenticated clients cross the real flow-to-setup boundary."""
@@ -85,12 +97,28 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
         result = await hass.config_entries.flow.async_configure(
             initial["flow_id"], user_input
         )
+        assert result["step_id"] == "room_areas"
+        fields = {
+            marker.schema: (marker, selector)
+            for marker, selector in result["data_schema"].schema.items()
+        }
+        assert set(fields) == {"Bad", "Closet"}
+        assert all(
+            isinstance(selector, AreaSelector) for _, selector in fields.values()
+        )
+        result = await _submit_room_areas(hass, result)
         await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Test Robot"
     assert result["data"] == expected_data
     assert result["result"].unique_id == TEST_ACCOUNT_FINGERPRINT
+    assert result["options"] == {
+        CONF_ROOM_AREAS: {
+            f"{TEST_DEVICE.id}:1": None,
+            f"{TEST_DEVICE.id}:6": None,
+        }
+    }
     assert "region" not in result["data"]
     assert "qid" not in result["data"]
     entry = result["result"]
@@ -103,7 +131,7 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
     assert hass.states.get("vacuum.test_robot") is not None
     assert hass.states.get("sensor.test_robot_battery") is not None
     assert hass.states.get("camera.test_robot_map") is None
-    assert hass.states.get("button.test_robot_clean_bad") is not None
+    assert len(hass.states.async_all("button")) == 2
     assert entry.data[CONF_CACHED_Q] == TEST_CACHED_CREDENTIALS.q
     assert entry.data[CONF_CACHED_T] == TEST_CACHED_CREDENTIALS.t
     assert "sid" not in entry.data
@@ -200,6 +228,8 @@ async def test_captcha_continues_on_same_client(hass, mock_client) -> None:
                 captcha["flow_id"],
                 {CONF_CAPTCHA_CODE: TEST_CAPTCHA_CODE},
             )
+            assert result["step_id"] == "room_areas"
+            result = await _submit_room_areas(hass, result)
             await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -223,6 +253,74 @@ async def test_captcha_continues_on_same_client(hass, mock_client) -> None:
 
     assert await hass.config_entries.async_unload(result["result"].entry_id)
     mock_client.close.assert_awaited_once()
+
+
+async def test_setup_room_area_defaults_and_persistence(hass, mock_client) -> None:
+    """Test setup shows every room and stores Area IDs instead of names."""
+
+    area_registry = ar.async_get(hass)
+    bathroom = area_registry.async_create("  bAd  ")
+    storage = area_registry.async_create("Storage")
+
+    room_areas = await _submit_user_flow(hass)
+    fields = {marker.schema: marker for marker in room_areas["data_schema"].schema}
+
+    assert set(fields) == {"Bad", "Closet"}
+    assert fields["Bad"].description["suggested_value"] == bathroom.id
+    assert fields["Closet"].description is None
+
+    result = await _submit_room_areas(
+        hass,
+        room_areas,
+        {"Bad": bathroom.id, "Closet": storage.id},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"][CONF_ROOM_AREAS] == {
+        f"{TEST_DEVICE.id}:1": bathroom.id,
+        f"{TEST_DEVICE.id}:6": storage.id,
+    }
+    assert "Closet" not in result["options"][CONF_ROOM_AREAS]
+
+
+async def test_options_flow_changes_and_clears_room_areas(hass, mock_client) -> None:
+    """Test Options can override and explicitly clear room mappings."""
+
+    area_registry = ar.async_get(hass)
+    bathroom = area_registry.async_create("Bad")
+    closet = area_registry.async_create("Closet")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_ACCOUNT_FINGERPRINT,
+        data=TEST_NATIVE_ENTRY_DATA,
+        options={
+            CONF_ROOM_AREAS: {
+                f"{TEST_DEVICE.id}:1": closet.id,
+            }
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    fields = {marker.schema: marker for marker in result["data_schema"].schema}
+    assert fields["Bad"].description["suggested_value"] == closet.id
+    assert fields["Closet"].description["suggested_value"] == closet.id
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"Closet": bathroom.id},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ROOM_AREAS] == {
+        f"{TEST_DEVICE.id}:1": None,
+        f"{TEST_DEVICE.id}:6": bathroom.id,
+    }
+    assert entry.state is ConfigEntryState.LOADED
 
 
 async def test_incorrect_captcha_stays_in_captcha_step(hass, mock_client) -> None:

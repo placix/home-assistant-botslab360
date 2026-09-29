@@ -11,7 +11,9 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.selector import (
+    AreaSelector,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
@@ -35,6 +37,7 @@ from . import (
     create_client_from_entry_data,
     create_native_client_from_entry_data,
 )
+from .areas import DiscoveredRoom, RoomAreaField, room_area_fields
 from .const import (
     CONF_AUTH_BACKEND,
     CONF_DEVICE_IDENTITY,
@@ -42,6 +45,7 @@ from .const import (
     CONF_IDENTITY_M2,
     CONF_IDENTITY_MID,
     CONF_Q,
+    CONF_ROOM_AREAS,
     CONF_T,
     DOMAIN,
 )
@@ -59,6 +63,7 @@ class ValidationResult:
 
     account_fingerprint: str
     title: str
+    rooms: tuple[DiscoveredRoom, ...]
 
 
 def _password_selector() -> TextSelector:
@@ -153,14 +158,50 @@ def _captcha_data_url(challenge: CaptchaChallenge) -> str:
     return f"data:{media_type};base64,{encoded}"
 
 
-async def _async_discover(client: Botslab360Client) -> ValidationResult:
+async def _async_discover(
+    client: Botslab360Client,
+    *,
+    include_rooms: bool,
+) -> ValidationResult:
     devices = await client.get_devices()
     if not devices:
         raise NoDevicesError
+    rooms: list[DiscoveredRoom] = []
+    if include_rooms:
+        for device in devices:
+            rooms.extend(
+                DiscoveredRoom(device, room) for room in await client.get_rooms(device)
+            )
     return ValidationResult(
         account_fingerprint=client.account_fingerprint,
         title=devices[0].name or "Botslab 360",
+        rooms=tuple(rooms),
     )
+
+
+def _room_area_schema(fields: list[RoomAreaField]) -> vol.Schema:
+    """Return an Area-selector schema for discovered rooms."""
+
+    schema: dict[vol.Marker, AreaSelector] = {}
+    for field in fields:
+        description = (
+            {"suggested_value": field.area_id} if field.area_id is not None else None
+        )
+        marker = vol.Optional(field.label, description=description)
+        schema[marker] = AreaSelector()
+    return vol.Schema(schema)
+
+
+def _room_area_mappings(
+    fields: list[RoomAreaField],
+    user_input: dict[str, Any],
+) -> dict[str, str | None]:
+    """Convert transient human-readable form fields to stable options keys."""
+
+    return {
+        field.discovered_room.mapping_key: user_input.get(field.label)
+        for field in fields
+    }
 
 
 class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -175,12 +216,13 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_client: Botslab360Client | None = None
         self._pending_challenge: CaptchaChallenge | None = None
         self._pending_data: dict[str, Any] | None = None
+        self._pending_validation: ValidationResult | None = None
         self._pending_reauth = False
         self._last_errors: dict[str, str] = {}
 
     @callback
     def async_remove(self) -> None:
-        """Close a client retained by an abandoned captcha flow."""
+        """Close a client retained by an abandoned authentication flow."""
 
         client = self._pending_client
         self._clear_pending_state()
@@ -305,7 +347,10 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             else:
                 try:
-                    validation = await _async_discover(client)
+                    validation = await _async_discover(
+                        client,
+                        include_rooms=not self._pending_reauth,
+                    )
                 except NoDevicesError:
                     return await self._async_return_to_origin("no_devices")
                 except AuthenticationError:
@@ -314,7 +359,6 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self._async_return_to_origin("cannot_connect")
                 data = self._pending_data
                 reauth = self._pending_reauth
-                self._clear_pending_state()
                 return await self._async_finish_validation(
                     validation,
                     data,
@@ -323,6 +367,51 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
         return self._show_captcha_form(errors)
+
+    async def async_step_room_areas(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Let the user review room-to-area assignments before setup."""
+
+        validation = self._pending_validation
+        client = self._pending_client
+        entry_data = self._pending_data
+        if validation is None or client is None or entry_data is None:
+            return self.async_abort(reason="invalid_auth")
+
+        fields = room_area_fields(
+            validation.rooms,
+            ar.async_get(self.hass).async_list_areas(),
+            {},
+        )
+        if user_input is None:
+            return self.async_show_form(
+                step_id="room_areas",
+                data_schema=_room_area_schema(fields),
+                last_step=True,
+            )
+
+        options = {CONF_ROOM_AREAS: _room_area_mappings(fields, user_input)}
+        self._clear_pending_state()
+        await async_store_authenticated_client(
+            self.hass,
+            validation.account_fingerprint,
+            client,
+        )
+        try:
+            return self.async_create_entry(
+                title=validation.title,
+                data=entry_data,
+                options=options,
+            )
+        except BaseException:
+            await async_discard_authenticated_client(
+                self.hass,
+                validation.account_fingerprint,
+                client,
+            )
+            raise
 
     async def _async_begin_authentication(
         self,
@@ -339,7 +428,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else create_client_from_entry_data(entry_data)
             )
             await client.authenticate()
-            validation = await _async_discover(client)
+            validation = await _async_discover(client, include_rooms=not reauth)
         except CaptchaRequired as err:
             self._pending_client = client
             self._pending_challenge = err.challenge
@@ -388,6 +477,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 validation.account_fingerprint,
                 client,
             )
+            self._clear_pending_state()
             try:
                 return self.async_update_reload_and_abort(
                     entry,
@@ -407,23 +497,12 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except BaseException:
             await client.close()
             raise
-        await async_store_authenticated_client(
-            self.hass,
-            validation.account_fingerprint,
-            client,
-        )
-        try:
-            return self.async_create_entry(
-                title=validation.title,
-                data=entry_data,
-            )
-        except BaseException:
-            await async_discard_authenticated_client(
-                self.hass,
-                validation.account_fingerprint,
-                client,
-            )
-            raise
+        self._pending_client = client
+        self._pending_challenge = None
+        self._pending_data = entry_data
+        self._pending_validation = validation
+        self._pending_reauth = False
+        return await self.async_step_room_areas()
 
     async def _async_return_to_origin(self, error: str) -> ConfigFlowResult:
         reauth = self._pending_reauth
@@ -443,6 +522,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_client = None
         self._pending_challenge = None
         self._pending_data = None
+        self._pending_validation = None
         self._pending_reauth = False
 
     def _show_captcha_form(
@@ -487,5 +567,70 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_legacy",
             data_schema=_legacy_schema(),
+            errors=errors,
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        _config_entry: config_entries.ConfigEntry,
+    ) -> Botslab360OptionsFlow:
+        """Return the room-area options flow."""
+
+        return Botslab360OptionsFlow()
+
+
+class Botslab360OptionsFlow(config_entries.OptionsFlowWithReload):
+    """Manage mutable room-to-area assignments."""
+
+    def __init__(self) -> None:
+        """Initialize room discovery state."""
+
+        self._rooms: tuple[DiscoveredRoom, ...] | None = None
+
+    async def async_step_init(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Discover rooms and edit their Home Assistant Areas."""
+
+        errors: dict[str, str] = {}
+        if self._rooms is None:
+            try:
+                validation = await _async_discover(
+                    self.config_entry.runtime_data.client,
+                    include_rooms=True,
+                )
+            except AuthenticationError:
+                self.config_entry.async_start_reauth(self.hass)
+                errors["base"] = "invalid_auth"
+            except NoDevicesError:
+                errors["base"] = "no_devices"
+            except (ApiError, TimeoutError, OSError):
+                errors["base"] = "cannot_connect"
+            else:
+                self._rooms = validation.rooms
+
+        fields: list[RoomAreaField] = []
+        if self._rooms is not None:
+            configured_mappings = self.config_entry.options.get(CONF_ROOM_AREAS, {})
+            fields = room_area_fields(
+                self._rooms,
+                ar.async_get(self.hass).async_list_areas(),
+                configured_mappings,
+            )
+            if user_input is not None:
+                mappings = dict(configured_mappings)
+                mappings.update(_room_area_mappings(fields, user_input))
+                return self.async_create_entry(
+                    data={
+                        **self.config_entry.options,
+                        CONF_ROOM_AREAS: mappings,
+                    }
+                )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_room_area_schema(fields),
             errors=errors,
         )
