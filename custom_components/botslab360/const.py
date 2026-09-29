@@ -6,6 +6,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "botslab360"
 DATA_AUTHENTICATED_CLIENTS = "authenticated_clients"
+DATA_AUTHENTICATED_NETWORK_MACS = "authenticated_network_macs"
 
 CONF_AUTH_BACKEND = "backend"
 CONF_CACHED_Q = "cached_q"

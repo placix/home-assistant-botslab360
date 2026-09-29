@@ -7,6 +7,7 @@ from collections.abc import Awaitable
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
     DeviceEntry,
     DeviceInfo,
     DeviceRegistry,
@@ -23,12 +24,16 @@ def async_get_or_create_robot_device(
     registry: DeviceRegistry,
     config_entry_id: str,
     device: Device,
+    network_mac: str | None = None,
 ) -> DeviceEntry:
     """Register and return a physical robot device."""
 
     return registry.async_get_or_create(
         config_entry_id=config_entry_id,
         identifiers={(DOMAIN, device.id)},
+        connections=(
+            {(CONNECTION_NETWORK_MAC, network_mac)} if network_mac is not None else None
+        ),
         manufacturer=MANUFACTURER,
         model=device.model or None,
         name=device.name or f"Botslab 360 {device.id}",

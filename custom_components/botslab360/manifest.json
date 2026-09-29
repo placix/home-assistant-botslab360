@@ -3,10 +3,17 @@
   "name": "Botslab 360",
   "codeowners": ["@placix"],
   "config_flow": true,
+  "dependencies": ["dhcp"],
+  "dhcp": [
+    {
+      "hostname": "360_cleanrobot_x9",
+      "macaddress": "B05947*"
+    }
+  ],
   "documentation": "https://github.com/placix/home-assistant-botslab360",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/placix/home-assistant-botslab360/issues",
-  "requirements": ["botslab360==0.4.2"],
-  "version": "0.2.4"
+  "requirements": ["botslab360==0.5.0"],
+  "version": "0.3.0"
 }

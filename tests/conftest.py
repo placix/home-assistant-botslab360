@@ -9,6 +9,7 @@ from botslab360 import (
     Botslab360Client,
     Device,
     DeviceIdentity,
+    NetworkInfo,
     QihooCredentials,
     RobotStatus,
     SmartSession,
@@ -153,6 +154,14 @@ def make_mock_client() -> MagicMock:
     client.continue_authentication = AsyncMock(side_effect=continue_authentication)
     client.get_devices = AsyncMock(return_value=[TEST_DEVICE])
     client.get_rooms = AsyncMock(return_value=TEST_ROOMS)
+    client.get_network_info = AsyncMock(
+        return_value=NetworkInfo(
+            station_ip="192.0.2.10",
+            station_mac="b0:59:47:00:00:01",
+            station_ssid=None,
+            station_signal=None,
+        )
+    )
     client.clean_rooms = AsyncMock()
     client.get_status = AsyncMock(return_value=make_status())
     client.start_cleaning = AsyncMock()

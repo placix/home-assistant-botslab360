@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,7 @@ from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     AreaSelector,
     BooleanSelector,
@@ -21,6 +23,7 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from botslab360 import (
     ApiError,
@@ -29,6 +32,7 @@ from botslab360 import (
     Botslab360Client,
     CaptchaChallenge,
     CaptchaRequired,
+    Device,
     DeviceIdentity,
 )
 
@@ -52,12 +56,23 @@ from .const import (
     CONF_T,
     DOMAIN,
 )
+from .entity import async_get_or_create_robot_device
 
 CONF_CAPTCHA_CODE = "captcha_code"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NoDevicesError(Exception):
     """Raised when an account contains no supported devices."""
+
+
+class DiscoveredDeviceNotFoundError(Exception):
+    """Raised when the discovered robot does not belong to the account."""
+
+
+class AmbiguousDiscoveredDeviceError(Exception):
+    """Raised when more than one account robot reports the discovered MAC."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +81,33 @@ class ValidationResult:
 
     account_fingerprint: str
     title: str
+    devices: tuple[Device, ...]
     rooms: tuple[DiscoveredRoom, ...]
+    network_macs: tuple[tuple[str, str], ...] = ()
+
+
+def _normalize_mac(mac_address: str | None) -> str | None:
+    """Return a normalized valid MAC address."""
+
+    if not mac_address:
+        return None
+    normalized = dr.format_mac(mac_address)
+    octets = normalized.split(":")
+    if len(octets) != 6 or any(
+        len(octet) != 2
+        or any(character not in "0123456789abcdef" for character in octet)
+        for octet in octets
+    ):
+        return None
+    return normalized
+
+
+def _discovery_title(hostname: str) -> str:
+    """Return a human-readable title for the narrow supported hostname."""
+
+    if hostname.casefold() == "360_cleanrobot_x9":
+        return "360 CleanRobot X9"
+    return "360 robot vacuum"
 
 
 def _password_selector() -> TextSelector:
@@ -165,10 +206,35 @@ async def _async_discover(
     client: Botslab360Client,
     *,
     include_rooms: bool,
+    discovery_mac: str | None = None,
 ) -> ValidationResult:
     devices = await client.get_devices()
     if not devices:
         raise NoDevicesError
+    network_macs: dict[str, str] = {}
+    if discovery_mac is not None:
+        matching_device_ids: list[str] = []
+        for device in devices:
+            try:
+                network_info = await client.get_network_info(device)
+            except AuthenticationError:
+                raise
+            except (ApiError, TimeoutError, OSError) as err:
+                _LOGGER.debug(
+                    "Could not verify network identity for account robot %s: %s",
+                    device.id,
+                    type(err).__name__,
+                )
+                continue
+            if (network_mac := _normalize_mac(network_info.station_mac)) is None:
+                continue
+            network_macs[device.id] = network_mac
+            if network_mac == discovery_mac:
+                matching_device_ids.append(device.id)
+        if not matching_device_ids:
+            raise DiscoveredDeviceNotFoundError
+        if len(matching_device_ids) > 1:
+            raise AmbiguousDiscoveredDeviceError
     rooms: list[DiscoveredRoom] = []
     if include_rooms:
         for device in devices:
@@ -178,7 +244,9 @@ async def _async_discover(
     return ValidationResult(
         account_fingerprint=client.account_fingerprint,
         title=devices[0].name or "Botslab 360",
+        devices=tuple(devices),
         rooms=tuple(rooms),
+        network_macs=tuple(network_macs.items()),
     )
 
 
@@ -245,6 +313,9 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_validation: ValidationResult | None = None
         self._pending_reauth = False
         self._last_errors: dict[str, str] = {}
+        self._discovery_hostname: str | None = None
+        self._discovery_mac: str | None = None
+        self._discovery_ip: str | None = None
 
     @callback
     def async_remove(self) -> None:
@@ -287,6 +358,58 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=_native_schema(user_input),
             errors=errors,
+        )
+
+    async def async_step_dhcp(
+        self,
+        discovery_info: DhcpServiceInfo,
+    ) -> ConfigFlowResult:
+        """Handle a robot discovered through DHCP."""
+
+        hostname = discovery_info.hostname.casefold()
+        network_mac = _normalize_mac(discovery_info.macaddress)
+        _LOGGER.debug(
+            "DHCP discovery received hostname=%s mac=%s ip=%s",
+            hostname,
+            network_mac,
+            discovery_info.ip,
+        )
+        if network_mac is None:
+            return self.async_abort(reason="invalid_discovery")
+
+        registry = dr.async_get(self.hass)
+        if any(
+            registry.async_get_device_by_connection(
+                (dr.CONNECTION_NETWORK_MAC, network_mac),
+                entry.entry_id,
+            )
+            is not None
+            for entry in self._async_current_entries()
+        ):
+            return self.async_abort(reason="already_configured")
+
+        await self.async_set_unique_id(f"dhcp:{network_mac}")
+        self._discovery_hostname = hostname
+        self._discovery_mac = network_mac
+        self._discovery_ip = discovery_info.ip
+        self.context["title_placeholders"] = {
+            "name": _discovery_title(hostname),
+        }
+        return await self.async_step_dhcp_confirm()
+
+    async def async_step_dhcp_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Confirm discovery before entering account credentials."""
+
+        if self._discovery_mac is None:
+            return self.async_abort(reason="invalid_discovery")
+        if user_input is not None:
+            return await self.async_step_user()
+        return self.async_show_form(
+            step_id="dhcp_confirm",
+            data_schema=vol.Schema({}),
         )
 
     async def async_step_reauth(self, _entry_data: dict[str, Any]) -> ConfigFlowResult:
@@ -376,11 +499,22 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     validation = await _async_discover(
                         client,
                         include_rooms=not self._pending_reauth,
+                        discovery_mac=(
+                            self._discovery_mac if not self._pending_reauth else None
+                        ),
                     )
                 except NoDevicesError:
                     return await self._async_return_to_origin("no_devices")
                 except AuthenticationError:
                     return await self._async_return_to_origin("invalid_auth")
+                except DiscoveredDeviceNotFoundError:
+                    return await self._async_return_to_origin(
+                        "discovered_device_not_found"
+                    )
+                except AmbiguousDiscoveredDeviceError:
+                    return await self._async_return_to_origin(
+                        "ambiguous_discovered_device"
+                    )
                 except (ApiError, TimeoutError, OSError):
                     return await self._async_return_to_origin("cannot_connect")
                 data = self._pending_data
@@ -429,6 +563,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.hass,
             validation.account_fingerprint,
             client,
+            dict(validation.network_macs),
         )
         try:
             return self.async_create_entry(
@@ -459,7 +594,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else create_client_from_entry_data(entry_data)
             )
             await client.authenticate()
-            validation = await _async_discover(client, include_rooms=not reauth)
+            validation = await _async_discover(
+                client,
+                include_rooms=not reauth,
+                discovery_mac=self._discovery_mac if not reauth else None,
+            )
         except CaptchaRequired as err:
             self._pending_client = client
             self._pending_challenge = err.challenge
@@ -470,6 +609,10 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._last_errors["base"] = "invalid_auth"
         except NoDevicesError:
             self._last_errors["base"] = "no_devices"
+        except DiscoveredDeviceNotFoundError:
+            self._last_errors["base"] = "discovered_device_not_found"
+        except AmbiguousDiscoveredDeviceError:
+            self._last_errors["base"] = "ambiguous_discovered_device"
         except (ApiError, TimeoutError, OSError):
             self._last_errors["base"] = "cannot_connect"
         except (KeyError, ValueError):
@@ -523,11 +666,26 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 raise
 
         try:
-            await self.async_set_unique_id(validation.account_fingerprint)
-            self._abort_if_unique_id_configured()
+            existing_entry = await self.async_set_unique_id(
+                validation.account_fingerprint
+            )
         except BaseException:
             await client.close()
             raise
+        if existing_entry is not None:
+            if self._discovery_mac is not None:
+                network_macs = dict(validation.network_macs)
+                for device in validation.devices:
+                    if network_macs.get(device.id) == self._discovery_mac:
+                        async_get_or_create_robot_device(
+                            dr.async_get(self.hass),
+                            existing_entry.entry_id,
+                            device,
+                            self._discovery_mac,
+                        )
+                        break
+            await client.close()
+            return self.async_abort(reason="already_configured")
         self._pending_client = client
         self._pending_challenge = None
         self._pending_data = entry_data
@@ -537,17 +695,17 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_return_to_origin(self, error: str) -> ConfigFlowResult:
         reauth = self._pending_reauth
-        await self._async_clear_pending()
+        await self._async_clear_pending(clear_discovery=False)
         if reauth:
             return self._show_native_reauth_form({"base": error})
         return self._show_user_form({"base": error})
 
-    async def _async_clear_pending(self) -> None:
+    async def _async_clear_pending(self, *, clear_discovery: bool = True) -> None:
         if self._pending_client is not None:
             await self._pending_client.close()
-        self._clear_pending_state()
+        self._clear_pending_state(clear_discovery=clear_discovery)
 
-    def _clear_pending_state(self) -> None:
+    def _clear_pending_state(self, *, clear_discovery: bool = True) -> None:
         """Forget transient captcha state after ownership is transferred."""
 
         self._pending_client = None
@@ -555,6 +713,10 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pending_data = None
         self._pending_validation = None
         self._pending_reauth = False
+        if clear_discovery:
+            self._discovery_hostname = None
+            self._discovery_mac = None
+            self._discovery_ip = None
 
     def _show_captcha_form(
         self,

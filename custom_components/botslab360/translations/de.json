@@ -1,12 +1,16 @@
 {
   "config": {
+    "flow_title": "{name}",
     "abort": {
       "already_configured": "Dieses Konto ist bereits konfiguriert.",
       "invalid_auth": "Der Authentifizierungsvorgang ist nicht mehr gültig. Starte ihn erneut.",
+      "invalid_discovery": "Der erkannte Roboter hat keine gültige Netzwerkidentität bereitgestellt.",
       "reauth_successful": "Die erneute Authentifizierung war erfolgreich."
     },
     "error": {
+      "ambiguous_discovered_device": "Mehr als ein Roboter in diesem Konto hat die erkannte Netzwerkidentität gemeldet.",
       "cannot_connect": "Verbindung fehlgeschlagen.",
+      "discovered_device_not_found": "Der erkannte Roboter wurde in diesem Konto nicht gefunden. Melde dich mit dem Konto an, zu dem er gehört.",
       "invalid_auth": "Authentifizierung fehlgeschlagen.",
       "invalid_captcha": "Der Bestätigungscode wurde nicht akzeptiert.",
       "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden.",
@@ -19,6 +23,10 @@
         },
         "description": "Gib den unten angezeigten Code ein.\n\n![Bestätigungsbild]({captcha_image})",
         "title": "Bestätigung abschließen"
+      },
+      "dhcp_confirm": {
+        "description": "Ein 360/Botslab-Saugroboter wurde in deinem Netzwerk gefunden. Melde dich mit dem Konto an, zu dem dieser Roboter gehört.",
+        "title": "360 Saugroboter entdeckt"
       },
       "reauth_confirm": {
         "data": {

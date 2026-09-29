@@ -11,6 +11,7 @@ for all communication with Botslab services and devices.
 - Captcha continuation when required by the selected account service
 - Continued support for existing legacy Q/T config entries
 - Robot discovery
+- Narrow DHCP discovery for the 360 CleanRobot X9 / S9-P network signature
 - Vacuum entity
 - Start
 - Pause
@@ -33,6 +34,13 @@ may behave differently.
 Botslab / CloudSmart and original 360Robot accounts use different account
 systems. Select the account type that owns the robot; the integration does not
 automatically fall back between them.
+
+When Home Assistant detects the narrowly matched 360 CleanRobot X9 DHCP
+signature, setup still requires explicit confirmation and account sign-in. The
+integration compares the discovered network MAC with each robot returned by the
+authenticated account before continuing, so discovery cannot silently configure
+an unrelated account. Existing installations gain the physical robot's MAC
+association on a best-effort basis without storing its current IP address.
 
 ## Room cleaning
 

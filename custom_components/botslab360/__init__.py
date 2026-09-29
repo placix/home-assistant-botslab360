@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
 from botslab360 import (
@@ -32,13 +34,17 @@ from .const import (
     CONF_Q,
     CONF_T,
     DATA_AUTHENTICATED_CLIENTS,
+    DATA_AUTHENTICATED_NETWORK_MACS,
     DOMAIN,
     PLATFORMS,
 )
 from .coordinator import Botslab360Coordinator
+from .entity import async_get_or_create_robot_device
 from .map import Botslab360MapCache
 from .room_preferences import remove_legacy_cleaning_mode_preferences
 from .services import async_register_services
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -54,10 +60,27 @@ class Botslab360RuntimeData:
 type Botslab360ConfigEntry = ConfigEntry[Botslab360RuntimeData]
 
 
+def _normalize_network_mac(mac_address: str | None) -> str | None:
+    """Return a normalized valid MAC address for the device registry."""
+
+    if not mac_address:
+        return None
+    normalized = dr.format_mac(mac_address)
+    octets = normalized.split(":")
+    if len(octets) != 6 or any(
+        len(octet) != 2
+        or any(character not in "0123456789abcdef" for character in octet)
+        for octet in octets
+    ):
+        return None
+    return normalized
+
+
 async def async_store_authenticated_client(
     hass: HomeAssistant,
     account_fingerprint: str,
     client: Botslab360Client,
+    network_macs: Mapping[str, str] | None = None,
 ) -> None:
     """Store an authenticated client for the next config entry setup."""
 
@@ -69,6 +92,11 @@ async def async_store_authenticated_client(
     if previous is not None and previous is not client:
         await previous.close()
     clients[account_fingerprint] = client
+    if network_macs:
+        authenticated_network_macs: dict[str, dict[str, str]] = domain_data.setdefault(
+            DATA_AUTHENTICATED_NETWORK_MACS, {}
+        )
+        authenticated_network_macs[account_fingerprint] = dict(network_macs)
 
 
 def take_authenticated_client(
@@ -90,6 +118,22 @@ def take_authenticated_client(
     return clients.pop(account_fingerprint, None)
 
 
+def take_authenticated_network_macs(
+    hass: HomeAssistant,
+    account_fingerprint: str | None,
+) -> dict[str, str]:
+    """Consume verified robot MAC addresses handed off by a config flow."""
+
+    if account_fingerprint is None or not (domain_data := hass.data.get(DOMAIN)):
+        return {}
+    network_macs: dict[str, dict[str, str]] | None = domain_data.get(
+        DATA_AUTHENTICATED_NETWORK_MACS
+    )
+    if network_macs is None:
+        return {}
+    return network_macs.pop(account_fingerprint, {})
+
+
 async def async_discard_authenticated_client(
     hass: HomeAssistant,
     account_fingerprint: str,
@@ -103,7 +147,47 @@ async def async_discard_authenticated_client(
     )
     if clients is not None and clients.get(account_fingerprint) is client:
         clients.pop(account_fingerprint)
+        network_macs = domain_data.get(DATA_AUTHENTICATED_NETWORK_MACS)
+        if network_macs is not None:
+            network_macs.pop(account_fingerprint, None)
         await client.close()
+
+
+async def _async_register_robot_network_macs(
+    hass: HomeAssistant,
+    entry: Botslab360ConfigEntry,
+    client: Botslab360Client,
+    network_macs: Mapping[str, str],
+) -> None:
+    """Best-effort register physical robot MAC connections."""
+
+    registry = dr.async_get(hass)
+    for device in entry.runtime_data.coordinator.devices.values():
+        network_mac = network_macs.get(device.id)
+        if network_mac is None:
+            try:
+                network_info = await client.get_network_info(device)
+            except (AuthenticationError, ApiError, TimeoutError, OSError) as err:
+                _LOGGER.debug(
+                    "Could not retrieve network information for %s: %s",
+                    device.id,
+                    type(err).__name__,
+                )
+            else:
+                network_mac = _normalize_network_mac(network_info.station_mac)
+        try:
+            async_get_or_create_robot_device(
+                registry,
+                entry.entry_id,
+                device,
+                network_mac,
+            )
+        except dr.DeviceInfoError as err:
+            _LOGGER.warning(
+                "Could not register network identity for robot %s: %s",
+                device.id,
+                err,
+            )
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -184,6 +268,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
     """Set up Botslab 360 from a config entry."""
 
     client = take_authenticated_client(hass, entry.unique_id)
+    authenticated_network_macs = take_authenticated_network_macs(hass, entry.unique_id)
     used_handoff = client is not None
     used_native_cache = False
     if client is None:
@@ -268,6 +353,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
         coordinator,
         Botslab360MapCache(hass, client),
         prepared_rooms,
+    )
+    await _async_register_robot_network_macs(
+        hass,
+        entry,
+        client,
+        authenticated_network_macs,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
