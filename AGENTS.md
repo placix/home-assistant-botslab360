@@ -93,8 +93,14 @@ Currently active platforms are:
 - sensor
 - button
 - select
+- switch
 
 Room-cleaning buttons are native Home Assistant button entities.
+
+Temporary multi-room cleaning jobs use one HA-side selection switch per active
+room and central start/clear buttons on the physical robot device. A job sends
+all selected room IDs in one public `client.clean_rooms()` call, keeps each
+room's verified preferences, and is never persisted across reloads or restarts.
 
 Device and Area structure:
 

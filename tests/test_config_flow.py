@@ -153,7 +153,7 @@ async def test_successful_config_flow(hass, mock_client, backend) -> None:
     assert hass.states.get("vacuum.test_robot") is not None
     assert hass.states.get("sensor.test_robot_battery") is not None
     assert hass.states.get("camera.test_robot_map") is None
-    assert len(hass.states.async_all("button")) == 2
+    assert len(hass.states.async_all("button")) == 4
     assert entry.data[CONF_CACHED_Q] == TEST_CACHED_CREDENTIALS.q
     assert entry.data[CONF_CACHED_T] == TEST_CACHED_CREDENTIALS.t
     assert "sid" not in entry.data

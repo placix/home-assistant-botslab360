@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -41,6 +41,7 @@ from .const import (
 from .coordinator import Botslab360Coordinator
 from .entity import async_get_or_create_robot_device
 from .map import Botslab360MapCache
+from .room_jobs import RoomJobState
 from .room_preferences import remove_legacy_cleaning_mode_preferences
 from .services import async_register_services
 
@@ -55,6 +56,7 @@ class Botslab360RuntimeData:
     coordinator: Botslab360Coordinator
     map_cache: Botslab360MapCache
     rooms: tuple[PreparedRoom, ...] = ()
+    room_jobs: RoomJobState = field(default_factory=RoomJobState)
 
 
 type Botslab360ConfigEntry = ConfigEntry[Botslab360RuntimeData]

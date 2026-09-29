@@ -82,6 +82,12 @@
     "button": {
       "clean_room": {
         "name": "{room_name} reinigen"
+      },
+      "job_clear": {
+        "name": "Raumauswahl löschen"
+      },
+      "job_start": {
+        "name": "Reinigungsauftrag starten"
       }
     },
     "select": {
@@ -131,6 +137,11 @@
       "fan_mode": {
         "name": "Saugmodus"
       }
+    },
+    "switch": {
+      "job_room": {
+        "name": "Auftrag: {room_name}"
+      }
     }
   },
   "exceptions": {
@@ -142,6 +153,9 @@
     },
     "invalid_auth": {
       "message": "Die Botslab-360-Zugangsdaten sind nicht mehr gültig."
+    },
+    "no_rooms_selected": {
+      "message": "Für den Reinigungsauftrag wurde kein Raum ausgewählt."
     }
   }
 }

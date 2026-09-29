@@ -22,7 +22,13 @@ CONF_ROOM_PREFERENCES = "room_preferences"
 CONF_T = "t"
 
 MANUFACTURER = "Botslab / 360"
-PLATFORMS = (Platform.VACUUM, Platform.SENSOR, Platform.BUTTON, Platform.SELECT)
+PLATFORMS = (
+    Platform.VACUUM,
+    Platform.SENSOR,
+    Platform.BUTTON,
+    Platform.SELECT,
+    Platform.SWITCH,
+)
 UPDATE_INTERVAL = timedelta(seconds=60)
 
 CONF_CLEAN_TIMES = "clean_times"

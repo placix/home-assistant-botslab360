@@ -24,6 +24,7 @@ for all communication with Botslab services and devices.
 - Error code
 - Fan mode
 - Native room-cleaning buttons
+- Native temporary multi-room cleaning jobs
 - Native per-room suction, pass-count, and water-level controls
 - Room cleaning through `botslab360.clean_rooms`
 
@@ -57,6 +58,13 @@ behavior, not a verified room Sweep/Mop selector.
 
 The `botslab360.clean_rooms` action remains available for automations that need
 to select one or more room IDs or apply supported per-run cleaning settings.
+
+The physical robot device also provides one temporary job-selection switch per
+active room plus buttons to start or clear the selection. Starting the job sends
+all selected room IDs in one multi-room request and applies each room's current
+suction, pass-count, and water-level preferences individually. The robot decides
+the actual navigation sequence. Selections are runtime-only, reset on integration
+reload or restart, and ignored rooms do not appear in this control surface.
 
 ## Map support
 

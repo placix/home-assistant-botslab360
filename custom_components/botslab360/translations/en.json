@@ -82,6 +82,12 @@
     "button": {
       "clean_room": {
         "name": "Clean {room_name}"
+      },
+      "job_clear": {
+        "name": "Clear room selection"
+      },
+      "job_start": {
+        "name": "Start cleaning job"
       }
     },
     "select": {
@@ -131,6 +137,11 @@
       "fan_mode": {
         "name": "Fan mode"
       }
+    },
+    "switch": {
+      "job_room": {
+        "name": "Cleaning job: {room_name}"
+      }
     }
   },
   "exceptions": {
@@ -142,6 +153,9 @@
     },
     "invalid_auth": {
       "message": "The Botslab 360 credentials are no longer valid."
+    },
+    "no_rooms_selected": {
+      "message": "No rooms are selected for the cleaning job."
     }
   }
 }

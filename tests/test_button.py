@@ -59,7 +59,7 @@ async def test_one_room_creates_one_button(hass, mock_client) -> None:
     assert state.attributes["icon"] == "mdi:broom"
     assert registry_entry is not None
     assert registry_entry.original_name == "Clean Bad"
-    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 1
+    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 3
     mock_client.get_rooms.assert_awaited_once_with(TEST_DEVICE)
 
 
@@ -110,7 +110,7 @@ async def test_multiple_rooms_create_separate_buttons(hass, mock_client) -> None
     assert first != second
     assert hass.states.get(first) is not None
     assert hass.states.get(second) is not None
-    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 2
+    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 4
 
     registry = dr.async_get(hass)
     parent_id = dr.async_get_device_id_by_identifier(
@@ -312,7 +312,7 @@ async def test_existing_room_button_moves_to_child_without_duplicate(
     assert updated.entity_id == old.entity_id
     assert updated.unique_id == old.unique_id
     assert updated.device_id == child.id
-    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 1
+    assert len(hass.states.async_all(BUTTON_DOMAIN)) == 3
 
 
 async def test_room_button_api_error_becomes_home_assistant_error(
