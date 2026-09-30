@@ -91,6 +91,14 @@
       }
     },
     "select": {
+      "cleaning_mode": {
+        "name": "Cleaning mode",
+        "state": {
+          "sweep": "Sweep",
+          "sweep_and_mop": "Sweep and mop",
+          "mop": "Mop"
+        }
+      },
       "room_fan_mode": {
         "name": "Suction mode",
         "state": {
@@ -156,6 +164,15 @@
     },
     "no_rooms_selected": {
       "message": "No rooms are selected for the cleaning job."
+    },
+    "mop_status_unknown": {
+      "message": "The wiping assembly status is unknown. Refresh the robot status before changing the cleaning mode."
+    },
+    "remove_wiping_assembly": {
+      "message": "Remove the wiping assembly before selecting Sweep."
+    },
+    "wiping_assembly_required": {
+      "message": "Install the wiping assembly before selecting a mopping mode."
     }
   }
 }

@@ -91,6 +91,14 @@
       }
     },
     "select": {
+      "cleaning_mode": {
+        "name": "Reinigungsmodus",
+        "state": {
+          "sweep": "Fegen",
+          "sweep_and_mop": "Fegen + Wischen",
+          "mop": "Wischen"
+        }
+      },
       "room_fan_mode": {
         "name": "Saugstärke",
         "state": {
@@ -156,6 +164,15 @@
     },
     "no_rooms_selected": {
       "message": "Für den Reinigungsauftrag wurde kein Raum ausgewählt."
+    },
+    "mop_status_unknown": {
+      "message": "Der Status der Wischeinheit ist unbekannt. Aktualisiere den Roboterstatus, bevor du den Reinigungsmodus änderst."
+    },
+    "remove_wiping_assembly": {
+      "message": "Entferne die Wischeinheit, bevor du Fegen auswählst."
+    },
+    "wiping_assembly_required": {
+      "message": "Setze die Wischeinheit ein, bevor du einen Wischmodus auswählst."
     }
   }
 }

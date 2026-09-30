@@ -111,6 +111,7 @@ def make_status(
     *,
     state: str | None = "idle",
     error_code: int = 0,
+    mop_status: int | None = None,
 ) -> RobotStatus:
     """Create a representative robot status."""
 
@@ -124,6 +125,7 @@ def make_status(
         cleaned_area_m2=42,
         cleaning_time_seconds=321,
         error_code=error_code,
+        mop_status=mop_status,
     )
 
 
@@ -169,6 +171,7 @@ def make_mock_client() -> MagicMock:
     client.resume = AsyncMock()
     client.return_to_dock = AsyncMock()
     client.locate = AsyncMock()
+    client.set_mop_only = AsyncMock()
     client.close = AsyncMock()
     return client
 

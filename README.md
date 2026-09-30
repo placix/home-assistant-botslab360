@@ -26,6 +26,7 @@ for all communication with Botslab services and devices.
 - Native room-cleaning buttons
 - Native temporary multi-room cleaning jobs
 - Native per-room suction, pass-count, and water-level controls
+- Native robot cleaning-mode control for sweep, sweep-and-mop, and mop-only
 - Room cleaning through `botslab360.clean_rooms`
 
 This is an early integration. Native 360Robot authentication and the current
@@ -55,6 +56,15 @@ their vacuum and remain stable when room names change.
 The vendor `SweepArea.mode` field is not exposed as a cleaning-mode control. In
 the analyzed Android app it is a nullable string used by carpet-related
 behavior, not a verified room Sweep/Mop selector.
+
+The robot device exposes a cleaning-mode select based on the reported wiping
+assembly status and the verified mop-only switch. With no wiping assembly,
+**Sweep** is available. With the assembly installed, **Sweep and mop** and
+**Mop** are available; **Sweep** is rejected until the assembly is removed.
+The robot does not report the current mop-only switch in its known status
+payload, so after a restart the select remains Unknown for installed wiping
+hardware until a mode is selected successfully. This optimistic state is not
+persisted. Water level remains an independent per-room setting.
 
 The `botslab360.clean_rooms` action remains available for automations that need
 to select one or more room IDs or apply supported per-run cleaning settings.
