@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,7 @@ from .const import (
 from .coordinator import Botslab360Coordinator
 from .entity import async_get_or_create_robot_device
 from .map import Botslab360MapCache
+from .network import async_abort_dhcp_flows, normalize_mac
 from .room_jobs import RoomJobState
 from .room_preferences import remove_legacy_cleaning_mode_preferences
 from .services import async_register_services
@@ -60,22 +62,6 @@ class Botslab360RuntimeData:
 
 
 type Botslab360ConfigEntry = ConfigEntry[Botslab360RuntimeData]
-
-
-def _normalize_network_mac(mac_address: str | None) -> str | None:
-    """Return a normalized valid MAC address for the device registry."""
-
-    if not mac_address:
-        return None
-    normalized = dr.format_mac(mac_address)
-    octets = normalized.split(":")
-    if len(octets) != 6 or any(
-        len(octet) != 2
-        or any(character not in "0123456789abcdef" for character in octet)
-        for octet in octets
-    ):
-        return None
-    return normalized
 
 
 async def async_store_authenticated_client(
@@ -164,7 +150,9 @@ async def _async_register_robot_network_macs(
     """Best-effort register physical robot MAC connections."""
 
     registry = dr.async_get(hass)
-    for device in entry.runtime_data.coordinator.devices.values():
+    devices = tuple(entry.runtime_data.coordinator.devices.values())
+    candidate_macs: dict[str, str | None] = {}
+    for device in devices:
         network_mac = network_macs.get(device.id) if network_macs is not None else None
         if network_macs is None:
             try:
@@ -176,7 +164,23 @@ async def _async_register_robot_network_macs(
                     type(err).__name__,
                 )
             else:
-                network_mac = _normalize_network_mac(network_info.station_mac)
+                network_mac = network_info.station_mac
+        candidate_macs[device.id] = normalize_mac(network_mac)
+
+    mac_counts = Counter(
+        network_mac
+        for network_mac in candidate_macs.values()
+        if network_mac is not None
+    )
+    registered_macs: set[str] = set()
+    for device in devices:
+        network_mac = candidate_macs[device.id]
+        if network_mac is not None and mac_counts[network_mac] > 1:
+            _LOGGER.warning(
+                "Ignoring ambiguous network identity reported for robot %s",
+                device.id,
+            )
+            network_mac = None
         try:
             async_get_or_create_robot_device(
                 registry,
@@ -184,12 +188,16 @@ async def _async_register_robot_network_macs(
                 device,
                 network_mac,
             )
+            if network_mac is not None:
+                registered_macs.add(network_mac)
         except dr.DeviceInfoError as err:
             _LOGGER.warning(
                 "Could not register network identity for robot %s: %s",
                 device.id,
                 err,
             )
+    for network_mac in registered_macs:
+        async_abort_dhcp_flows(hass, network_mac)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -320,6 +328,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
 
     _async_update_cached_credentials(hass, entry, client)
 
+    entry.runtime_data = Botslab360RuntimeData(
+        client,
+        coordinator,
+        Botslab360MapCache(hass, client),
+    )
+    await _async_register_robot_network_macs(
+        hass,
+        entry,
+        client,
+        authenticated_network_macs,
+    )
+
     discovered_rooms: list[DiscoveredRoom] = []
     try:
         for device in coordinator.devices.values():
@@ -350,18 +370,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
         discovered_rooms,
     )
 
-    entry.runtime_data = Botslab360RuntimeData(
-        client,
-        coordinator,
-        Botslab360MapCache(hass, client),
-        prepared_rooms,
-    )
-    await _async_register_robot_network_macs(
-        hass,
-        entry,
-        client,
-        authenticated_network_macs,
-    )
+    entry.runtime_data.rooms = prepared_rooms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

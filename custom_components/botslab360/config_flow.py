@@ -57,6 +57,7 @@ from .const import (
     DOMAIN,
 )
 from .entity import async_get_or_create_robot_device
+from .network import async_mac_registered, async_match_runtime_robot, normalize_mac
 
 CONF_CAPTCHA_CODE = "captcha_code"
 
@@ -76,22 +77,6 @@ class ValidationResult:
     devices: tuple[Device, ...]
     rooms: tuple[DiscoveredRoom, ...]
     network_macs: tuple[tuple[str, str], ...] = ()
-
-
-def _normalize_mac(mac_address: str | None) -> str | None:
-    """Return a normalized valid MAC address."""
-
-    if not mac_address:
-        return None
-    normalized = dr.format_mac(mac_address)
-    octets = normalized.split(":")
-    if len(octets) != 6 or any(
-        len(octet) != 2
-        or any(character not in "0123456789abcdef" for character in octet)
-        for octet in octets
-    ):
-        return None
-    return normalized
 
 
 def _discovery_title(hostname: str) -> str:
@@ -216,7 +201,7 @@ async def _async_discover(
                     type(err).__name__,
                 )
                 continue
-            if (network_mac := _normalize_mac(network_info.station_mac)) is None:
+            if (network_mac := normalize_mac(network_info.station_mac)) is None:
                 continue
             if network_mac == discovery_mac:
                 matching_device_ids.append(device.id)
@@ -365,7 +350,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle a robot discovered through DHCP."""
 
         hostname = discovery_info.hostname.casefold()
-        network_mac = _normalize_mac(discovery_info.macaddress)
+        network_mac = normalize_mac(discovery_info.macaddress)
         _LOGGER.debug(
             "DHCP discovery received hostname=%s mac=%s ip=%s",
             hostname,
@@ -375,18 +360,12 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if network_mac is None:
             return self.async_abort(reason="invalid_discovery")
 
-        registry = dr.async_get(self.hass)
-        if any(
-            registry.async_get_device_by_connection(
-                (dr.CONNECTION_NETWORK_MAC, network_mac),
-                entry.entry_id,
-            )
-            is not None
-            for entry in self._async_current_entries()
-        ):
+        if await async_match_runtime_robot(self.hass, network_mac):
             return self.async_abort(reason="already_configured")
 
         await self.async_set_unique_id(f"dhcp:{network_mac}")
+        if async_mac_registered(self.hass, network_mac):
+            return self.async_abort(reason="already_configured")
         self._discovery_hostname = hostname
         self._discovery_mac = network_mac
         self._discovery_ip = discovery_info.ip
@@ -403,7 +382,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if self._discovery_mac is None:
             return self.async_abort(reason="invalid_discovery")
+        if async_mac_registered(self.hass, self._discovery_mac):
+            return self.async_abort(reason="already_configured")
         if user_input is not None:
+            if await async_match_runtime_robot(self.hass, self._discovery_mac):
+                return self.async_abort(reason="already_configured")
             return await self.async_step_user()
         return self.async_show_form(
             step_id="dhcp_confirm",
