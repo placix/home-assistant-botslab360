@@ -14,6 +14,8 @@ from botslab360 import (
 )
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -160,7 +162,15 @@ async def test_entry_runtime_data_and_unload(hass, mock_client) -> None:
         assert entry.runtime_data.coordinator.data[TEST_DEVICE.id] == make_status()
         forward_mock.assert_awaited_once_with(entry, PLATFORMS)
         assert hass.states.get("sensor.test_robot_error_code") is not None
-        assert hass.states.get("sensor.test_robot_fan_mode") is not None
+        assert hass.states.get("sensor.test_robot_fan_mode") is None
+        fan_mode = er.async_get(hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{TEST_DEVICE.id}_fan_mode"
+        )
+        assert fan_mode is not None
+        assert (
+            er.async_get(hass).async_get(fan_mode).disabled_by
+            is RegistryEntryDisabler.INTEGRATION
+        )
         mock_client.authenticate.assert_awaited_once()
 
         clear_map_cache = MagicMock()

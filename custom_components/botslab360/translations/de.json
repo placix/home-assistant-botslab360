@@ -79,6 +79,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "wiping_assembly": {
+        "name": "Wischaufsatz"
+      }
+    },
     "button": {
       "clean_room": {
         "name": "{room_name} reinigen"
@@ -144,6 +149,54 @@
       },
       "fan_mode": {
         "name": "Saugmodus"
+      },
+      "raw_state": {
+        "name": "Roher Roboterstatus"
+      },
+      "raw_total_cleaned_area": {
+        "name": "Roher Gesamtflächenwert"
+      },
+      "total_cleaning_time": {
+        "name": "Gesamte Reinigungsdauer"
+      },
+      "raw_sub_state": {
+        "name": "Roher Unterstatus"
+      },
+      "raw_last_sub_state": {
+        "name": "Roher letzter Unterstatus"
+      },
+      "position_x": {
+        "name": "Rohe Position X"
+      },
+      "position_y": {
+        "name": "Rohe Position Y"
+      },
+      "heading": {
+        "name": "Roher Ausrichtungswert"
+      },
+      "raw_timer_status": {
+        "name": "Roher Timerstatus"
+      },
+      "raw_auto_boost": {
+        "name": "Roher Auto-Boost-Status"
+      },
+      "raw_mop_status": {
+        "name": "Roher Wischaufsatzstatus"
+      },
+      "room_id": {
+        "name": "Raum-ID"
+      },
+      "room_type": {
+        "name": "Raumtyp"
+      },
+      "raw_sweep_area_mode": {
+        "name": "Roher SweepArea-Modus"
+      },
+      "raw_water_pump": {
+        "name": "Roher Wasserpumpenwert"
+      },
+      "polygon_vertex_count": {
+        "name": "Anzahl Polygonpunkte"
       }
     },
     "switch": {

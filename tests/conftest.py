@@ -126,6 +126,15 @@ def make_status(
         cleaning_time_seconds=321,
         error_code=error_code,
         mop_status=mop_status,
+        total_cleaned_area_raw=4200,
+        total_cleaning_time_seconds=3600,
+        sub_state="smart",
+        last_sub_state="total",
+        position_x=120,
+        position_y=340,
+        heading=90,
+        timer_status=1,
+        auto_boost=0,
     )
 
 

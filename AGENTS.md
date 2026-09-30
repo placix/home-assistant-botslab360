@@ -91,6 +91,7 @@ Currently active platforms are:
 
 - vacuum
 - sensor
+- binary_sensor
 - button
 - select
 - switch

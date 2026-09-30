@@ -10,7 +10,7 @@ from botslab360 import ApiError, AuthenticationError, RoomCleaningSettings
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.select import ATTR_OPTION
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN, EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -88,6 +88,9 @@ async def test_room_selects_use_robot_templates_and_stable_unique_ids(
     assert er.async_get(hass).async_get(fan).unique_id == (
         f"{TEST_DEVICE.id}_room_1_fan_mode"
     )
+    assert er.async_get(hass).async_get(fan).entity_category is EntityCategory.CONFIG
+    assert er.async_get(hass).async_get(passes).entity_category is EntityCategory.CONFIG
+    assert er.async_get(hass).async_get(water).entity_category is EntityCategory.CONFIG
     assert (
         er.async_get(hass).async_get_entity_id(
             SELECT_DOMAIN,
@@ -208,12 +211,13 @@ async def test_cleaning_mode_authentication_error_starts_reauth(
     start_reauth.assert_called_once_with(hass)
 
 
+@pytest.mark.parametrize("water_pump", [None, 0, 4])
 async def test_water_select_requires_valid_template_or_preference(
-    hass, mock_client
+    hass, mock_client, water_pump
 ) -> None:
     """Test no water-level control is invented for an unsupported room."""
 
-    mock_client.get_rooms.return_value = [replace(TEST_ROOMS[0], water_pump=None)]
+    mock_client.get_rooms.return_value = [replace(TEST_ROOMS[0], water_pump=water_pump)]
     await _setup_entry(hass)
 
     assert (

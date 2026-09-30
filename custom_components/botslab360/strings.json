@@ -79,6 +79,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "wiping_assembly": {
+        "name": "Wiping assembly"
+      }
+    },
     "button": {
       "clean_room": {
         "name": "Clean {room_name}"
@@ -144,6 +149,54 @@
       },
       "fan_mode": {
         "name": "Fan mode"
+      },
+      "raw_state": {
+        "name": "Raw robot state"
+      },
+      "raw_total_cleaned_area": {
+        "name": "Raw total cleaned area"
+      },
+      "total_cleaning_time": {
+        "name": "Total cleaning time"
+      },
+      "raw_sub_state": {
+        "name": "Raw sub-state"
+      },
+      "raw_last_sub_state": {
+        "name": "Raw last sub-state"
+      },
+      "position_x": {
+        "name": "Raw position X"
+      },
+      "position_y": {
+        "name": "Raw position Y"
+      },
+      "heading": {
+        "name": "Raw heading"
+      },
+      "raw_timer_status": {
+        "name": "Raw timer status"
+      },
+      "raw_auto_boost": {
+        "name": "Raw auto boost"
+      },
+      "raw_mop_status": {
+        "name": "Raw wiping assembly status"
+      },
+      "room_id": {
+        "name": "Room ID"
+      },
+      "room_type": {
+        "name": "Room type"
+      },
+      "raw_sweep_area_mode": {
+        "name": "Raw SweepArea mode"
+      },
+      "raw_water_pump": {
+        "name": "Raw water pump"
+      },
+      "polygon_vertex_count": {
+        "name": "Polygon vertex count"
       }
     },
     "switch": {

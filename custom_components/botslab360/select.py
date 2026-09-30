@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -199,6 +200,8 @@ class Botslab360RobotCleaningModeSelect(Botslab360Entity, SelectEntity):
 
 class Botslab360RoomSelect(Botslab360Entity, SelectEntity):
     """Native select for one preferred room-cleaning setting."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,

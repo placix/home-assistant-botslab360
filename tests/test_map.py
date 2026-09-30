@@ -159,6 +159,7 @@ async def test_camera_platform_is_not_loaded_for_multiple_devices(
     await hass.async_block_till_done()
 
     assert Platform.CAMERA not in PLATFORMS
+    assert Platform.BINARY_SENSOR in PLATFORMS
     assert Platform.SWITCH in PLATFORMS
     assert hass.states.get("camera.test_robot_map") is None
     assert hass.states.get("camera.second_robot_map") is None

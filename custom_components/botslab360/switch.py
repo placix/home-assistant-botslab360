@@ -5,10 +5,12 @@ from __future__ import annotations
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import ChildDeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Botslab360ConfigEntry
 from .areas import DiscoveredRoom
+from .const import DOMAIN
 from .coordinator import Botslab360Coordinator
 from .entity import Botslab360Entity
 from .room_jobs import async_remove_stale_job_entities
@@ -23,7 +25,12 @@ async def async_setup_entry(
 
     coordinator = entry.runtime_data.coordinator
     entities = [
-        Botslab360RoomJobSwitch(entry, coordinator, prepared.discovered_room)
+        Botslab360RoomJobSwitch(
+            entry,
+            coordinator,
+            prepared.discovered_room,
+            prepared.parent_device_id,
+        )
         for prepared in entry.runtime_data.rooms
     ]
     async_remove_stale_job_entities(
@@ -46,6 +53,7 @@ class Botslab360RoomJobSwitch(Botslab360Entity, SwitchEntity):
         entry: Botslab360ConfigEntry,
         coordinator: Botslab360Coordinator,
         discovered_room: DiscoveredRoom,
+        parent_device_id: str,
     ) -> None:
         """Initialize a room job-selection switch."""
 
@@ -55,6 +63,11 @@ class Botslab360RoomJobSwitch(Botslab360Entity, SwitchEntity):
         self._job_state = entry.runtime_data.room_jobs
         self._room_id = room.id
         self._attr_unique_id = f"{device.id}_job_room_{room.id}"
+        self._attr_device_info = ChildDeviceInfo(
+            identifiers={(DOMAIN, f"{device.id}_room_{room.id}")},
+            name=room.name or f"Room {room.id}",
+            parent_device_id=parent_device_id,
+        )
         self._attr_translation_placeholders = {
             "room_name": room.name or f"Room {room.id}"
         }

@@ -79,7 +79,7 @@ async def _press(hass, entity_id: str) -> None:
 async def test_job_controls_use_physical_robot_and_stable_unique_ids(
     hass, mock_client
 ) -> None:
-    """Test every active room has one physical-device job switch."""
+    """Test room switches use child devices and central buttons use the robot."""
 
     entry = await _setup_entry(hass)
     registry = er.async_get(hass)
@@ -96,8 +96,6 @@ async def test_job_controls_use_physical_robot_and_stable_unique_ids(
     assert first != second
     assert registry.async_get(first).unique_id == f"{TEST_DEVICE.id}_job_room_1"
     assert registry.async_get(second).unique_id == f"{TEST_DEVICE.id}_job_room_6"
-    assert registry.async_get(first).device_id == parent_id
-    assert registry.async_get(second).device_id == parent_id
     assert hass.states.get(first).attributes["icon"] == (
         "mdi:checkbox-marked-circle-outline"
     )
@@ -113,12 +111,19 @@ async def test_job_controls_use_physical_robot_and_stable_unique_ids(
         (DOMAIN, f"{TEST_DEVICE.id}_room_1"),
         entry.entry_id,
     )
+    second_child = device_registry.async_get_child_device_by_identifier(
+        (DOMAIN, f"{TEST_DEVICE.id}_room_6"),
+        entry.entry_id,
+    )
+    assert child is not None
+    assert second_child is not None
+    assert registry.async_get(first).device_id == child.id
+    assert registry.async_get(second).device_id == second_child.id
     room_button = _entity_id(
         hass,
         BUTTON_DOMAIN,
         f"{TEST_DEVICE.id}_room_1_clean",
     )
-    assert child is not None
     assert registry.async_get(room_button).device_id == child.id
 
 

@@ -23,6 +23,8 @@ for all communication with Botslab services and devices.
 - Cleaning duration
 - Error code
 - Fan mode
+- Wiping-assembly presence
+- Optional disabled diagnostics for totals, raw states, position, heading, and rooms
 - Native room-cleaning buttons
 - Native temporary multi-room cleaning jobs
 - Native per-room suction, pass-count, and water-level controls
@@ -52,6 +54,11 @@ native Home Assistant button for each room. Pressing a room button starts a
 cleaning run for exactly that room using its selected suction, pass count, and
 water level. Room controls are grouped on a child device below
 their vacuum and remain stable when room names change.
+
+Everyday entities are enabled by default. Technical robot and room diagnostics
+are registered but disabled by default so they can be enabled selectively from
+Home Assistant's entity registry. See [the entity inventory](docs/entities.md)
+for the complete matrix and unknown-value behavior.
 
 The vendor `SweepArea.mode` field is not exposed as a cleaning-mode control. In
 the analyzed Android app it is a nullable string used by carpet-related
