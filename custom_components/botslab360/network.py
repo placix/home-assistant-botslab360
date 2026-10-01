@@ -45,7 +45,7 @@ def async_mac_registered(hass: HomeAssistant, network_mac: str) -> bool:
         is not None
         for entry in hass.config_entries.async_entries(DOMAIN)
     )
-    _LOGGER.debug(
+    _LOGGER.info(
         "Device Registry MAC lookup completed: normalized_mac=%s registered=%s",
         network_mac,
         registered,
@@ -57,20 +57,20 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
     """Best-effort match a DHCP MAC to one configured runtime robot."""
 
     registry_match = async_mac_registered(hass, network_mac)
-    _LOGGER.debug(
+    _LOGGER.info(
         "DHCP runtime match pre-check: normalized_mac=%s registry_match=%s",
         network_mac,
         registry_match,
     )
     if registry_match:
-        _LOGGER.debug(
+        _LOGGER.info(
             "DHCP runtime matching skipped because the MAC is already registered: "
             "normalized_mac=%s",
             network_mac,
         )
         return True
 
-    _LOGGER.debug(
+    _LOGGER.info(
         "DHCP runtime matching started: normalized_mac=%s",
         network_mac,
     )
@@ -90,7 +90,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
                 )
                 continue
             normalized_robot_mac = normalize_mac(network_info.station_mac)
-            _LOGGER.debug(
+            _LOGGER.info(
                 "DHCP runtime robot network information received: robot_id=%s "
                 "station_ip=%s station_mac=%s normalized_mac=%s",
                 device.id,
@@ -99,12 +99,12 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
                 normalized_robot_mac,
             )
             if not network_info.station_mac:
-                _LOGGER.debug(
+                _LOGGER.info(
                     "DHCP runtime robot has no station MAC: robot_id=%s",
                     device.id,
                 )
             elif normalized_robot_mac is None:
-                _LOGGER.debug(
+                _LOGGER.info(
                     "DHCP runtime robot station MAC was rejected during "
                     "normalization: robot_id=%s station_mac=%s",
                     device.id,
@@ -113,7 +113,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
             if normalized_robot_mac == network_mac:
                 matches.append((entry.entry_id, device))
 
-    _LOGGER.debug(
+    _LOGGER.info(
         "DHCP runtime matching completed: normalized_mac=%s matches=%d",
         network_mac,
         len(matches),
@@ -121,7 +121,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
 
     # Existing-entry setup may have registered the MAC while lookups awaited.
     if async_mac_registered(hass, network_mac):
-        _LOGGER.debug(
+        _LOGGER.info(
             "DHCP runtime match became registered while lookups were pending: "
             "normalized_mac=%s",
             network_mac,
@@ -129,7 +129,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
         return True
     if len(matches) != 1:
         if len(matches) > 1:
-            _LOGGER.debug(
+            _LOGGER.info(
                 "Multiple configured Botslab robots reported DHCP MAC %s; "
                 "not assigning the connection",
                 network_mac,
@@ -138,7 +138,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
 
     entry_id, device = matches[0]
     try:
-        _LOGGER.debug(
+        _LOGGER.info(
             "Registering runtime-matched robot Device Registry MAC connection: "
             "config_entry_id=%s robot_id=%s normalized_mac=%s",
             entry_id,
@@ -155,7 +155,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
             dr.CONNECTION_NETWORK_MAC,
             network_mac,
         ) in registry_device.connections
-        _LOGGER.debug(
+        _LOGGER.info(
             "Runtime-matched robot network identity registration succeeded: "
             "robot_id=%s device_registry_id=%s normalized_mac=%s "
             "expected_connection_present=%s",
