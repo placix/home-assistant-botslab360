@@ -332,6 +332,28 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
+            if self._discovery_mac is not None:
+                _LOGGER.info(
+                    "Rechecking DHCP identity before credential authentication: "
+                    "normalized_mac=%s",
+                    self._discovery_mac,
+                )
+                runtime_match = await async_match_runtime_robot(
+                    self.hass,
+                    self._discovery_mac,
+                )
+                if runtime_match.matched:
+                    _LOGGER.info(
+                        "DHCP login suppressed after runtime matching: "
+                        "normalized_mac=%s reason=already_configured",
+                        self._discovery_mac,
+                    )
+                    return self.async_abort(reason="already_configured")
+                if len(runtime_match.unverified_candidates) == 1:
+                    self._pending_network_candidate = (
+                        runtime_match.unverified_candidates[0]
+                    )
+                    return await self.async_step_dhcp_bind_existing()
             if self._device_identity is None:
                 self._device_identity = DeviceIdentity.generate()
             entry_data = {
@@ -410,56 +432,8 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if len(runtime_match.unverified_candidates) == 1:
             self._pending_network_candidate = runtime_match.unverified_candidates[0]
             return await self.async_step_dhcp_bind_existing()
-        return await self.async_step_dhcp_confirm()
-
-    async def async_step_dhcp_confirm(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> ConfigFlowResult:
-        """Confirm discovery before entering account credentials."""
-
-        if self._discovery_mac is None:
-            _LOGGER.info("DHCP confirmation aborted: reason=invalid_discovery")
-            return self.async_abort(reason="invalid_discovery")
-        registered = async_mac_registered(self.hass, self._discovery_mac)
-        _LOGGER.info(
-            "DHCP confirmation registry check: normalized_mac=%s registered=%s",
-            self._discovery_mac,
-            registered,
-        )
-        if registered:
-            _LOGGER.info(
-                "DHCP confirmation suppressed after registry check: "
-                "normalized_mac=%s reason=already_configured",
-                self._discovery_mac,
-            )
-            return self.async_abort(reason="already_configured")
-        if user_input is not None:
-            _LOGGER.info(
-                "Attempting DHCP runtime matching during confirmation: "
-                "normalized_mac=%s",
-                self._discovery_mac,
-            )
-            runtime_match = await async_match_runtime_robot(
-                self.hass,
-                self._discovery_mac,
-            )
-            if runtime_match.matched:
-                _LOGGER.info(
-                    "DHCP confirmation suppressed after runtime matching: "
-                    "normalized_mac=%s reason=already_configured",
-                    self._discovery_mac,
-                )
-                return self.async_abort(reason="already_configured")
-            if len(runtime_match.unverified_candidates) == 1:
-                self._pending_network_candidate = runtime_match.unverified_candidates[0]
-                return await self.async_step_dhcp_bind_existing()
-            self._discovery_confirmed = True
-            return await self.async_step_user()
-        return self.async_show_form(
-            step_id="dhcp_confirm",
-            data_schema=vol.Schema({}),
-        )
+        self._discovery_confirmed = True
+        return await self.async_step_user()
 
     async def async_step_dhcp_bind_existing(
         self,
@@ -471,10 +445,10 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         network_mac = self._discovery_mac
         if candidate is None or network_mac is None:
             return self.async_abort(reason="invalid_discovery")
+        self._set_confirm_only()
         if user_input is None:
             return self.async_show_form(
                 step_id="dhcp_bind_existing",
-                data_schema=vol.Schema({}),
                 description_placeholders={
                     "robot_name": candidate.device.name or candidate.device.id,
                     "network_mac": network_mac,
@@ -516,7 +490,6 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except dr.DeviceInfoError:
             return self.async_show_form(
                 step_id="dhcp_bind_existing",
-                data_schema=vol.Schema({}),
                 description_placeholders={
                     "robot_name": candidate.device.name or candidate.device.id,
                     "network_mac": network_mac,

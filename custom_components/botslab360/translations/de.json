@@ -22,12 +22,8 @@
         "description": "Gib den unten angezeigten Code ein.\n\n![Bestätigungsbild]({captcha_image})",
         "title": "Bestätigung abschließen"
       },
-      "dhcp_confirm": {
-        "description": "Ein 360/Botslab-Saugroboter wurde in deinem Netzwerk gefunden. Melde dich mit dem Konto an, zu dem dieser Roboter gehört.",
-        "title": "360 Saugroboter entdeckt"
-      },
       "dhcp_bind_existing": {
-        "description": "Home Assistant hat das Netzwerkgerät {network_mac} entdeckt. Die Netzwerkverifizierung ist nicht verfügbar. Bestätige nur, wenn dies dein bereits konfigurierter Roboter {robot_name} ist.",
+        "description": "Home Assistant hat das Netzwerkgerät {network_mac} entdeckt. Die Netzwerkidentität konnte nicht automatisch überprüft werden. Möchtest du dieses Netzwerkgerät dem bereits eingerichteten Roboter {robot_name} zuordnen?",
         "title": "Entdeckten Roboter zuordnen"
       },
       "reauth_confirm": {

@@ -11,6 +11,7 @@ from botslab360 import ApiError, AuthenticationError, Device, NetworkInfo
 from homeassistant.config_entries import SOURCE_DHCP, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import translation
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -56,13 +57,9 @@ async def _start_dhcp_flow(hass):
 
 async def _reach_room_assignment(hass, mock_client):
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
     mock_client.get_network_info.return_value = _network_info()
     return await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -106,21 +103,41 @@ def test_manifest_uses_narrow_combined_dhcp_matcher() -> None:
     assert not matches("360_cleanrobot_x9", "00:11:22:33:44:55")
 
 
-async def test_dhcp_starts_confirmed_existing_login_flow(hass, mock_client) -> None:
-    """Test discovery remains transient and requires explicit user configuration."""
+async def test_dhcp_binding_translations_are_available(hass) -> None:
+    """Test Home Assistant loads both localized binding confirmation strings."""
+
+    german = await translation.async_get_translations(
+        hass,
+        "de",
+        "config",
+        integrations={DOMAIN},
+    )
+    english = await translation.async_get_translations(
+        hass,
+        "en",
+        "config",
+        integrations={DOMAIN},
+    )
+
+    title_key = f"component.{DOMAIN}.config.step.dhcp_bind_existing.title"
+    description_key = f"component.{DOMAIN}.config.step.dhcp_bind_existing.description"
+    assert german[title_key] == "Entdeckten Roboter zuordnen"
+    assert "{network_mac}" in german[description_key]
+    assert "{robot_name}" in german[description_key]
+    assert english[title_key] == "Associate discovered robot"
+    assert "{network_mac}" in english[description_key]
+    assert "{robot_name}" in english[description_key]
+
+
+async def test_dhcp_proceeds_directly_to_login(hass, mock_client) -> None:
+    """Test a fresh discovery opens login without a redundant empty form."""
 
     result = await _start_dhcp_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "dhcp_confirm"
+    assert result["step_id"] == "user"
     flow = hass.config_entries.flow.async_get(result["flow_id"])
     assert flow["context"]["title_placeholders"] == {"name": "360 CleanRobot X9"}
-    assert not hass.config_entries.async_entries(DOMAIN)
-
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "user"
     assert not hass.config_entries.async_entries(DOMAIN)
     mock_client.authenticate.assert_not_awaited()
 
@@ -163,14 +180,10 @@ async def test_dhcp_unmatched_mac_continues_without_lan_association(
     """Test a valid account continues when its robots do not match the DHCP MAC."""
 
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
     mock_client.get_network_info.return_value = _network_info("00:11:22:33:44:55")
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -200,13 +213,9 @@ async def test_dhcp_ambiguous_mac_continues_without_guessing(hass, mock_client) 
     mock_client.get_devices.return_value = [TEST_DEVICE, second_device]
     mock_client.get_network_info.return_value = _network_info()
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -241,13 +250,9 @@ async def test_dhcp_multiple_unverified_robots_continue_without_binding(
     mock_client.get_devices.return_value = [TEST_DEVICE, second_device]
     mock_client.get_network_info.side_effect = ApiError("unavailable")
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -283,13 +288,9 @@ async def test_dhcp_network_info_failure_binds_confirmed_single_robot(
 
     mock_client.get_network_info.side_effect = network_error
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -312,13 +313,9 @@ async def test_dhcp_missing_station_mac_binds_confirmed_single_robot(
     caplog.set_level(logging.INFO, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info(None)
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -340,13 +337,9 @@ async def test_dhcp_invalid_credentials_remain_authentication_error(
 
     mock_client.authenticate.side_effect = AuthenticationError("invalid")
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -362,13 +355,9 @@ async def test_dhcp_account_without_devices_remains_no_devices(
 
     mock_client.get_devices.return_value = []
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -459,7 +448,7 @@ async def test_loaded_entry_nonmatching_mac_allows_discovery(hass, mock_client) 
     result = await _start_dhcp_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "dhcp_confirm"
+    assert result["step_id"] == "user"
     mock_client.get_network_info.assert_awaited_once_with(TEST_DEVICE)
 
 
@@ -527,6 +516,9 @@ async def test_existing_single_robot_confirms_and_persists_dhcp_binding(
         "network_mac": DISCOVERED_MAC,
         "robot_name": TEST_DEVICE.name,
     }
+    assert binding["data_schema"] is None
+    flow = hass.config_entries.flow.async_get(binding["flow_id"])
+    assert flow["context"]["confirm_only"] is True
     result = await hass.config_entries.flow.async_configure(binding["flow_id"], {})
 
     assert result["type"] is FlowResultType.ABORT
@@ -612,7 +604,7 @@ async def test_multiple_unverified_robots_are_not_offered_for_binding(
     result = await _start_dhcp_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "dhcp_confirm"
+    assert result["step_id"] == "user"
     for device in (TEST_DEVICE, second_device):
         robot = registry.async_get_device_by_identifier(
             (DOMAIN, device.id),
@@ -725,7 +717,7 @@ async def test_ambiguous_runtime_mac_does_not_guess(hass, mock_client) -> None:
     result = await _start_dhcp_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "dhcp_confirm"
+    assert result["step_id"] == "user"
     registry = dr.async_get(hass)
     assert (
         registry.async_get_device_by_connection(
@@ -782,7 +774,7 @@ async def test_setup_removes_stale_dhcp_flow_after_mac_backfill(
     entry.add_to_hass(hass)
     discovery = await _start_dhcp_flow(hass)
     assert discovery["type"] is FlowResultType.FORM
-    assert discovery["step_id"] == "dhcp_confirm"
+    assert discovery["step_id"] == "user"
     mock_client.get_network_info.return_value = _network_info()
 
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -801,10 +793,10 @@ async def test_setup_removes_stale_dhcp_flow_after_mac_backfill(
     assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in robot.connections
 
 
-async def test_dhcp_confirmation_rechecks_runtime_after_startup_race(
+async def test_dhcp_login_rechecks_runtime_after_startup_race(
     hass, mock_client
 ) -> None:
-    """Test confirmation catches runtime data that appeared after discovery."""
+    """Test login catches runtime data that appeared after discovery."""
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -814,13 +806,13 @@ async def test_dhcp_confirmation_rechecks_runtime_after_startup_race(
     entry.add_to_hass(hass)
     discovery = await _start_dhcp_flow(hass)
     assert discovery["type"] is FlowResultType.FORM
-    assert discovery["step_id"] == "dhcp_confirm"
+    assert discovery["step_id"] == "user"
 
     mock_client.get_network_info.return_value = _network_info()
     _set_entry_runtime(hass, entry, mock_client, TEST_DEVICE)
     result = await hass.config_entries.flow.async_configure(
         discovery["flow_id"],
-        {},
+        TEST_NATIVE_INPUT,
     )
 
     assert result["type"] is FlowResultType.ABORT
@@ -853,13 +845,9 @@ async def test_existing_account_is_verified_before_mac_registration(
     )
 
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
     mock_client.get_network_info.return_value = _network_info()
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 
@@ -892,13 +880,9 @@ async def test_existing_account_without_mac_match_remains_deduplicated(
     )
     mock_client.get_network_info.return_value = _network_info("00:11:22:33:44:55")
     discovery = await _start_dhcp_flow(hass)
-    login = await hass.config_entries.flow.async_configure(
-        discovery["flow_id"],
-        {},
-    )
 
     result = await hass.config_entries.flow.async_configure(
-        login["flow_id"],
+        discovery["flow_id"],
         TEST_NATIVE_INPUT,
     )
 

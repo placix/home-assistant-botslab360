@@ -22,12 +22,8 @@
         "description": "Enter the code shown below.\n\n![Verification image]({captcha_image})",
         "title": "Complete verification"
       },
-      "dhcp_confirm": {
-        "description": "A 360/Botslab robot vacuum was found on your network. Sign in with the account that owns this robot.",
-        "title": "360 robot vacuum discovered"
-      },
       "dhcp_bind_existing": {
-        "description": "Home Assistant discovered network device {network_mac}. Network verification is unavailable. Confirm only if this is your already configured robot {robot_name}.",
+        "description": "Home Assistant discovered network device {network_mac}. Its network identity could not be verified automatically. Do you want to associate this network device with the already configured robot {robot_name}?",
         "title": "Associate discovered robot"
       },
       "reauth_confirm": {
