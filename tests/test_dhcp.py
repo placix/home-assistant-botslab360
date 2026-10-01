@@ -227,6 +227,46 @@ async def test_dhcp_ambiguous_mac_continues_without_guessing(hass, mock_client) 
         assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) not in robot.connections
 
 
+async def test_dhcp_multiple_unverified_robots_continue_without_binding(
+    hass, mock_client
+) -> None:
+    """Test confirmed fresh setup cannot bind one MAC to multiple candidates."""
+
+    second_device = Device(
+        id="second-test-device",
+        name="Second Test Robot",
+        model="Test Model",
+        online=True,
+    )
+    mock_client.get_devices.return_value = [TEST_DEVICE, second_device]
+    mock_client.get_network_info.side_effect = ApiError("unavailable")
+    discovery = await _start_dhcp_flow(hass)
+    login = await hass.config_entries.flow.async_configure(
+        discovery["flow_id"],
+        {},
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        login["flow_id"],
+        TEST_NATIVE_INPUT,
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "room_areas"
+
+    result = await _complete_room_assignment(hass, result)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    registry = dr.async_get(hass)
+    for device in (TEST_DEVICE, second_device):
+        robot = registry.async_get_device_by_identifier(
+            (DOMAIN, device.id),
+            result["result"].entry_id,
+        )
+        assert robot is not None
+        assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) not in robot.connections
+
+
 @pytest.mark.parametrize(
     "network_error",
     [
@@ -236,10 +276,10 @@ async def test_dhcp_ambiguous_mac_continues_without_guessing(hass, mock_client) 
         OSError("unavailable"),
     ],
 )
-async def test_dhcp_network_info_failure_continues_without_lan_association(
+async def test_dhcp_network_info_failure_binds_confirmed_single_robot(
     hass, mock_client, network_error
 ) -> None:
-    """Test unavailable network information does not block account setup."""
+    """Test confirmed fresh setup binds one robot when network info is unavailable."""
 
     mock_client.get_network_info.side_effect = network_error
     discovery = await _start_dhcp_flow(hass)
@@ -260,14 +300,14 @@ async def test_dhcp_network_info_failure_continues_without_lan_association(
         result["result"].entry_id,
     )
     assert robot is not None
-    assert not robot.connections
+    assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in robot.connections
     mock_client.get_network_info.assert_awaited_once_with(TEST_DEVICE)
 
 
-async def test_dhcp_missing_station_mac_continues_without_lan_association(
+async def test_dhcp_missing_station_mac_binds_confirmed_single_robot(
     hass, mock_client, caplog
 ) -> None:
-    """Test a missing station MAC leaves the discovered robot unassociated."""
+    """Test confirmed fresh setup binds one robot with a missing station MAC."""
 
     caplog.set_level(logging.INFO, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info(None)
@@ -289,8 +329,8 @@ async def test_dhcp_missing_station_mac_continues_without_lan_association(
         result["result"].entry_id,
     )
     assert robot is not None
-    assert not robot.connections
-    assert "Robot network identity has no station MAC" in caplog.text
+    assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in robot.connections
+    assert "Using user-confirmed DHCP MAC for single authenticated robot" in caplog.text
 
 
 async def test_dhcp_invalid_credentials_remain_authentication_error(
@@ -432,10 +472,10 @@ async def test_loaded_entry_nonmatching_mac_allows_discovery(hass, mock_client) 
         OSError("unavailable"),
     ],
 )
-async def test_loaded_entry_network_error_does_not_false_match(
+async def test_loaded_entry_network_error_offers_explicit_binding(
     hass, mock_client, network_error
 ) -> None:
-    """Test runtime identity failures do not crash or suppress discovery."""
+    """Test runtime identity failures offer but do not apply explicit binding."""
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -443,17 +483,179 @@ async def test_loaded_entry_network_error_does_not_false_match(
         data=TEST_NATIVE_ENTRY_DATA,
     )
     entry.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, TEST_DEVICE.id)},
+    )
     _set_entry_runtime(hass, entry, mock_client, TEST_DEVICE)
     mock_client.get_network_info.side_effect = network_error
 
     result = await _start_dhcp_flow(hass)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "dhcp_confirm"
+    assert result["step_id"] == "dhcp_bind_existing"
     assert not dr.async_get(hass).async_get_device_by_connection(
         (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC),
         entry.entry_id,
     )
+
+
+async def test_existing_single_robot_confirms_and_persists_dhcp_binding(
+    hass, mock_client
+) -> None:
+    """Test explicit binding persists and suppresses repeated DHCP without lookup."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_ACCOUNT_FINGERPRINT,
+        data=TEST_NATIVE_ENTRY_DATA,
+    )
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    original = registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, TEST_DEVICE.id)},
+    )
+    _set_entry_runtime(hass, entry, mock_client, TEST_DEVICE)
+    mock_client.get_network_info.side_effect = ApiError("unavailable")
+
+    binding = await _start_dhcp_flow(hass)
+
+    assert binding["type"] is FlowResultType.FORM
+    assert binding["step_id"] == "dhcp_bind_existing"
+    assert binding["description_placeholders"] == {
+        "network_mac": DISCOVERED_MAC,
+        "robot_name": TEST_DEVICE.name,
+    }
+    result = await hass.config_entries.flow.async_configure(binding["flow_id"], {})
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    robot = registry.async_get_device_by_identifier(
+        (DOMAIN, TEST_DEVICE.id),
+        entry.entry_id,
+    )
+    assert robot is not None
+    assert robot.id == original.id
+    assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in robot.connections
+    assert hass.config_entries.async_entries(DOMAIN) == [entry]
+    assert len(dr.async_entries_for_config_entry(registry, entry.entry_id)) == 1
+
+    mock_client.get_network_info.reset_mock()
+    repeated = await _start_dhcp_flow(hass)
+
+    assert repeated["type"] is FlowResultType.ABORT
+    assert repeated["reason"] == "already_configured"
+    mock_client.get_network_info.assert_not_awaited()
+
+
+async def test_existing_robot_dhcp_binding_cancellation_changes_nothing(
+    hass, mock_client
+) -> None:
+    """Test cancelling explicit association leaves the existing robot untouched."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_ACCOUNT_FINGERPRINT,
+        data=TEST_NATIVE_ENTRY_DATA,
+    )
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    original = registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, TEST_DEVICE.id)},
+    )
+    _set_entry_runtime(hass, entry, mock_client, TEST_DEVICE)
+    mock_client.get_network_info.side_effect = ApiError("unavailable")
+    binding = await _start_dhcp_flow(hass)
+    assert binding["step_id"] == "dhcp_bind_existing"
+
+    hass.config_entries.flow.async_abort(binding["flow_id"])
+    await hass.async_block_till_done()
+
+    robot = registry.async_get_device_by_identifier(
+        (DOMAIN, TEST_DEVICE.id),
+        entry.entry_id,
+    )
+    assert robot is not None
+    assert robot.id == original.id
+    assert not robot.connections
+    assert hass.config_entries.async_entries(DOMAIN) == [entry]
+
+
+async def test_multiple_unverified_robots_are_not_offered_for_binding(
+    hass, mock_client
+) -> None:
+    """Test multiple unverifiable robots cannot be selectively associated."""
+
+    second_device = Device(
+        id="second-test-device",
+        name="Second Test Robot",
+        model="Test Model",
+        online=True,
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=TEST_ACCOUNT_FINGERPRINT,
+        data=TEST_NATIVE_ENTRY_DATA,
+    )
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    for device in (TEST_DEVICE, second_device):
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, device.id)},
+        )
+    _set_entry_runtime(hass, entry, mock_client, TEST_DEVICE, second_device)
+    mock_client.get_network_info.side_effect = ApiError("unavailable")
+
+    result = await _start_dhcp_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "dhcp_confirm"
+    for device in (TEST_DEVICE, second_device):
+        robot = registry.async_get_device_by_identifier(
+            (DOMAIN, device.id),
+            entry.entry_id,
+        )
+        assert robot is not None
+        assert not robot.connections
+
+
+async def test_dhcp_mac_owned_by_another_robot_is_not_reassigned(
+    hass, mock_client
+) -> None:
+    """Test a MAC registered during confirmation is not reassigned."""
+
+    candidate_entry = MockConfigEntry(domain=DOMAIN, unique_id="candidate", data={})
+    candidate_entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    candidate = registry.async_get_or_create(
+        config_entry_id=candidate_entry.entry_id,
+        identifiers={(DOMAIN, TEST_DEVICE.id)},
+    )
+    _set_entry_runtime(hass, candidate_entry, mock_client, TEST_DEVICE)
+    mock_client.get_network_info.side_effect = ApiError("unavailable")
+
+    binding = await _start_dhcp_flow(hass)
+    assert binding["step_id"] == "dhcp_bind_existing"
+
+    owner_entry = MockConfigEntry(domain=DOMAIN, unique_id="owner", data={})
+    owner_entry.add_to_hass(hass)
+    owner_device = Device("owner-device", "Owner Robot", "Test Model", True)
+    owner = registry.async_get_or_create(
+        config_entry_id=owner_entry.entry_id,
+        identifiers={(DOMAIN, owner_device.id)},
+        connections={(dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC)},
+    )
+
+    result = await hass.config_entries.flow.async_configure(binding["flow_id"], {})
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in owner.connections
+    assert not candidate.connections
+    mock_client.get_network_info.assert_awaited_once_with(TEST_DEVICE)
 
 
 async def test_multiple_entries_only_exact_runtime_mac_suppresses_dhcp(

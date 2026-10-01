@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from homeassistant.config_entries import SOURCE_DHCP
 from homeassistant.core import HomeAssistant, callback
@@ -14,6 +15,23 @@ from .const import DOMAIN
 from .entity import async_get_or_create_robot_device
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeRobotCandidate:
+    """An existing robot eligible for explicit DHCP MAC association."""
+
+    config_entry_id: str
+    device_registry_id: str
+    device: Device
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeRobotMatchResult:
+    """Result of verified and fallback runtime network matching."""
+
+    matched: bool
+    unverified_candidates: tuple[RuntimeRobotCandidate, ...] = ()
 
 
 def normalize_mac(mac_address: str | None) -> str | None:
@@ -53,7 +71,34 @@ def async_mac_registered(hass: HomeAssistant, network_mac: str) -> bool:
     return registered
 
 
-async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bool:
+@callback
+def async_get_unverified_candidate(
+    registry: dr.DeviceRegistry,
+    config_entry_id: str,
+    device: Device,
+) -> RuntimeRobotCandidate | None:
+    """Return a candidate only for an existing robot without a network MAC."""
+
+    registry_device = registry.async_get_device_by_identifier(
+        (DOMAIN, device.id),
+        config_entry_id,
+    )
+    if registry_device is None or any(
+        connection_type == dr.CONNECTION_NETWORK_MAC
+        for connection_type, _ in registry_device.connections
+    ):
+        return None
+    return RuntimeRobotCandidate(
+        config_entry_id=config_entry_id,
+        device_registry_id=registry_device.id,
+        device=device,
+    )
+
+
+async def async_match_runtime_robot(
+    hass: HomeAssistant,
+    network_mac: str,
+) -> RuntimeRobotMatchResult:
     """Best-effort match a DHCP MAC to one configured runtime robot."""
 
     registry_match = async_mac_registered(hass, network_mac)
@@ -68,13 +113,15 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
             "normalized_mac=%s",
             network_mac,
         )
-        return True
+        return RuntimeRobotMatchResult(matched=True)
 
     _LOGGER.info(
         "DHCP runtime matching started: normalized_mac=%s",
         network_mac,
     )
     matches: list[tuple[str, Device]] = []
+    unverified_candidates: list[RuntimeRobotCandidate] = []
+    registry = dr.async_get(hass)
     for entry in hass.config_entries.async_entries(DOMAIN):
         runtime = getattr(entry, "runtime_data", None)
         if runtime is None:
@@ -88,6 +135,12 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
                     device.id,
                     type(err).__name__,
                 )
+                if candidate := async_get_unverified_candidate(
+                    registry,
+                    entry.entry_id,
+                    device,
+                ):
+                    unverified_candidates.append(candidate)
                 continue
             normalized_robot_mac = normalize_mac(network_info.station_mac)
             _LOGGER.info(
@@ -110,13 +163,23 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
                     device.id,
                     network_info.station_mac,
                 )
+            if normalized_robot_mac is None and (
+                candidate := async_get_unverified_candidate(
+                    registry,
+                    entry.entry_id,
+                    device,
+                )
+            ):
+                unverified_candidates.append(candidate)
             if normalized_robot_mac == network_mac:
                 matches.append((entry.entry_id, device))
 
     _LOGGER.info(
-        "DHCP runtime matching completed: normalized_mac=%s matches=%d",
+        "DHCP runtime matching completed: normalized_mac=%s matches=%d "
+        "unverified_candidates=%d",
         network_mac,
         len(matches),
+        len(unverified_candidates),
     )
 
     # Existing-entry setup may have registered the MAC while lookups awaited.
@@ -126,7 +189,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
             "normalized_mac=%s",
             network_mac,
         )
-        return True
+        return RuntimeRobotMatchResult(matched=True)
     if len(matches) != 1:
         if len(matches) > 1:
             _LOGGER.info(
@@ -134,7 +197,10 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
                 "not assigning the connection",
                 network_mac,
             )
-        return False
+        return RuntimeRobotMatchResult(
+            matched=False,
+            unverified_candidates=(tuple(unverified_candidates) if not matches else ()),
+        )
 
     entry_id, device = matches[0]
     try:
@@ -171,7 +237,7 @@ async def async_match_runtime_robot(hass: HomeAssistant, network_mac: str) -> bo
             device.id,
             err,
         )
-    return True
+    return RuntimeRobotMatchResult(matched=True)
 
 
 @callback
