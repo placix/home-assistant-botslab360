@@ -310,7 +310,7 @@ async def test_dhcp_missing_station_mac_binds_confirmed_single_robot(
 ) -> None:
     """Test confirmed fresh setup binds one robot with a missing station MAC."""
 
-    caplog.set_level(logging.INFO, logger="custom_components.botslab360")
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info(None)
     discovery = await _start_dhcp_flow(hass)
 
@@ -395,7 +395,7 @@ async def test_loaded_entry_matches_and_registers_dhcp_mac(
 ) -> None:
     """Test runtime network identity suppresses discovery before credential UI."""
 
-    caplog.set_level(logging.INFO, logger="custom_components.botslab360")
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=TEST_ACCOUNT_FINGERPRINT,
@@ -902,7 +902,7 @@ async def test_existing_entry_setup_best_effort_registers_mac(
 ) -> None:
     """Test existing installations gain a network connection during setup."""
 
-    caplog.set_level(logging.INFO, logger="custom_components.botslab360")
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info()
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1003,7 +1003,7 @@ async def test_existing_setup_does_not_merge_robots_with_duplicate_mac(
 ) -> None:
     """Test an ambiguous reported MAC cannot merge two physical robots."""
 
-    caplog.set_level(logging.INFO, logger="custom_components.botslab360")
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     second_device = Device(
         id="second-test-device",
         name="Second Test Robot",

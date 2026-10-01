@@ -333,7 +333,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             if self._discovery_mac is not None:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Rechecking DHCP identity before credential authentication: "
                     "normalized_mac=%s",
                     self._discovery_mac,
@@ -343,7 +343,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._discovery_mac,
                 )
                 if runtime_match.matched:
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "DHCP login suppressed after runtime matching: "
                         "normalized_mac=%s reason=already_configured",
                         self._discovery_mac,
@@ -386,23 +386,23 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         hostname = discovery_info.hostname.casefold()
         network_mac = normalize_mac(discovery_info.macaddress)
-        _LOGGER.info(
+        _LOGGER.debug(
             "DHCP discovery received hostname=%s mac=%s ip=%s",
             hostname,
             network_mac,
             discovery_info.ip,
         )
         if network_mac is None:
-            _LOGGER.info("DHCP discovery aborted: reason=invalid_discovery")
+            _LOGGER.debug("DHCP discovery aborted: reason=invalid_discovery")
             return self.async_abort(reason="invalid_discovery")
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Attempting DHCP runtime matching: normalized_mac=%s",
             network_mac,
         )
         runtime_match = await async_match_runtime_robot(self.hass, network_mac)
         if runtime_match.matched:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "DHCP discovery suppressed after runtime matching: "
                 "normalized_mac=%s reason=already_configured",
                 network_mac,
@@ -411,13 +411,13 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         await self.async_set_unique_id(f"dhcp:{network_mac}")
         registered = async_mac_registered(self.hass, network_mac)
-        _LOGGER.info(
+        _LOGGER.debug(
             "DHCP post-unique-id registry check: normalized_mac=%s registered=%s",
             network_mac,
             registered,
         )
         if registered:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "DHCP discovery suppressed after registry re-check: "
                 "normalized_mac=%s reason=already_configured",
                 network_mac,
@@ -501,7 +501,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             network_mac,
         ) not in registry_device.connections:
             return self.async_abort(reason="invalid_discovery")
-        _LOGGER.info(
+        _LOGGER.debug(
             "User confirmed DHCP MAC association: config_entry_id=%s "
             "robot_id=%s normalized_mac=%s",
             candidate.config_entry_id,
@@ -806,7 +806,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 validation,
                 network_macs=((fallback_device.id, self._discovery_mac),),
             )
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Using user-confirmed DHCP MAC for single authenticated robot: "
                 "robot_id=%s normalized_mac=%s",
                 fallback_device.id,

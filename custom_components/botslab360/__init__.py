@@ -151,7 +151,7 @@ async def _async_register_robot_network_macs(
 
     registry = dr.async_get(hass)
     devices = tuple(entry.runtime_data.coordinator.devices.values())
-    _LOGGER.info(
+    _LOGGER.debug(
         "Starting robot network identity registration: config_entry_id=%s "
         "robots=%d handed_off_network_macs=%s",
         entry.entry_id,
@@ -174,7 +174,7 @@ async def _async_register_robot_network_macs(
             else:
                 network_mac = network_info.station_mac
                 normalized_mac = normalize_mac(network_mac)
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Robot network information received: robot_id=%s "
                     "station_ip=%s station_mac=%s normalized_mac=%s",
                     device.id,
@@ -184,7 +184,7 @@ async def _async_register_robot_network_macs(
                 )
         else:
             normalized_mac = normalize_mac(network_mac)
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Using handed-off robot network identity: robot_id=%s "
                 "station_mac=%s normalized_mac=%s",
                 device.id,
@@ -192,12 +192,12 @@ async def _async_register_robot_network_macs(
                 normalized_mac,
             )
         if not network_mac:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Robot network identity has no station MAC: robot_id=%s",
                 device.id,
             )
         elif normalized_mac is None:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Robot station MAC was rejected during normalization: "
                 "robot_id=%s station_mac=%s",
                 device.id,
@@ -214,7 +214,7 @@ async def _async_register_robot_network_macs(
     for device in devices:
         network_mac = candidate_macs[device.id]
         if network_mac is not None and mac_counts[network_mac] > 1:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Robot network identity is ambiguous: robot_id=%s "
                 "normalized_mac=%s matches=%d",
                 device.id,
@@ -224,7 +224,7 @@ async def _async_register_robot_network_macs(
             network_mac = None
         try:
             if network_mac is not None:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Registering robot Device Registry MAC connection: "
                     "robot_id=%s normalized_mac=%s",
                     device.id,
@@ -241,7 +241,7 @@ async def _async_register_robot_network_macs(
                     dr.CONNECTION_NETWORK_MAC,
                     network_mac,
                 ) in registry_device.connections
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Robot network identity registration succeeded: "
                     "robot_id=%s device_registry_id=%s normalized_mac=%s "
                     "expected_connection_present=%s",
