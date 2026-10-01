@@ -1,0 +1,5 @@
+homeassistant==2026.9.4
+botslab360==0.7.0
+pytest-homeassistant-custom-component
+pytest-cov
+ruff
