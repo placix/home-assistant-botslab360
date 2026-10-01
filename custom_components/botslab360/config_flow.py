@@ -358,13 +358,34 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             discovery_info.ip,
         )
         if network_mac is None:
+            _LOGGER.debug("DHCP discovery aborted: reason=invalid_discovery")
             return self.async_abort(reason="invalid_discovery")
 
+        _LOGGER.debug(
+            "Attempting DHCP runtime matching: normalized_mac=%s",
+            network_mac,
+        )
         if await async_match_runtime_robot(self.hass, network_mac):
+            _LOGGER.debug(
+                "DHCP discovery suppressed after runtime matching: "
+                "normalized_mac=%s reason=already_configured",
+                network_mac,
+            )
             return self.async_abort(reason="already_configured")
 
         await self.async_set_unique_id(f"dhcp:{network_mac}")
-        if async_mac_registered(self.hass, network_mac):
+        registered = async_mac_registered(self.hass, network_mac)
+        _LOGGER.debug(
+            "DHCP post-unique-id registry check: normalized_mac=%s registered=%s",
+            network_mac,
+            registered,
+        )
+        if registered:
+            _LOGGER.debug(
+                "DHCP discovery suppressed after registry re-check: "
+                "normalized_mac=%s reason=already_configured",
+                network_mac,
+            )
             return self.async_abort(reason="already_configured")
         self._discovery_hostname = hostname
         self._discovery_mac = network_mac
@@ -381,11 +402,33 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Confirm discovery before entering account credentials."""
 
         if self._discovery_mac is None:
+            _LOGGER.debug("DHCP confirmation aborted: reason=invalid_discovery")
             return self.async_abort(reason="invalid_discovery")
-        if async_mac_registered(self.hass, self._discovery_mac):
+        registered = async_mac_registered(self.hass, self._discovery_mac)
+        _LOGGER.debug(
+            "DHCP confirmation registry check: normalized_mac=%s registered=%s",
+            self._discovery_mac,
+            registered,
+        )
+        if registered:
+            _LOGGER.debug(
+                "DHCP confirmation suppressed after registry check: "
+                "normalized_mac=%s reason=already_configured",
+                self._discovery_mac,
+            )
             return self.async_abort(reason="already_configured")
         if user_input is not None:
+            _LOGGER.debug(
+                "Attempting DHCP runtime matching during confirmation: "
+                "normalized_mac=%s",
+                self._discovery_mac,
+            )
             if await async_match_runtime_robot(self.hass, self._discovery_mac):
+                _LOGGER.debug(
+                    "DHCP confirmation suppressed after runtime matching: "
+                    "normalized_mac=%s reason=already_configured",
+                    self._discovery_mac,
+                )
                 return self.async_abort(reason="already_configured")
             return await self.async_step_user()
         return self.async_show_form(

@@ -1,6 +1,7 @@
 """Tests for Botslab 360 DHCP discovery and MAC registration."""
 
 import json
+import logging
 from fnmatch import fnmatchcase
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -264,10 +265,11 @@ async def test_dhcp_network_info_failure_continues_without_lan_association(
 
 
 async def test_dhcp_missing_station_mac_continues_without_lan_association(
-    hass, mock_client
+    hass, mock_client, caplog
 ) -> None:
     """Test a missing station MAC leaves the discovered robot unassociated."""
 
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info(None)
     discovery = await _start_dhcp_flow(hass)
     login = await hass.config_entries.flow.async_configure(
@@ -288,6 +290,7 @@ async def test_dhcp_missing_station_mac_continues_without_lan_association(
     )
     assert robot is not None
     assert not robot.connections
+    assert "Robot network identity has no station MAC" in caplog.text
 
 
 async def test_dhcp_invalid_credentials_remain_authentication_error(
@@ -358,9 +361,12 @@ async def test_existing_registered_robot_suppresses_dhcp_discovery(
     mock_client.authenticate.assert_not_awaited()
 
 
-async def test_loaded_entry_matches_and_registers_dhcp_mac(hass, mock_client) -> None:
+async def test_loaded_entry_matches_and_registers_dhcp_mac(
+    hass, mock_client, caplog
+) -> None:
     """Test runtime network identity suppresses discovery before credential UI."""
 
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=TEST_ACCOUNT_FINGERPRINT,
@@ -389,6 +395,9 @@ async def test_loaded_entry_matches_and_registers_dhcp_mac(hass, mock_client) ->
     assert len(dr.async_entries_for_config_entry(registry, entry.entry_id)) == 1
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
     mock_client.get_network_info.assert_awaited_once_with(TEST_DEVICE)
+    assert "DHCP runtime matching completed" in caplog.text
+    assert "matches=1" in caplog.text
+    assert "DHCP discovery suppressed after runtime matching" in caplog.text
 
 
 async def test_loaded_entry_nonmatching_mac_allows_discovery(hass, mock_client) -> None:
@@ -703,10 +712,11 @@ async def test_existing_account_without_mac_match_remains_deduplicated(
 
 
 async def test_existing_entry_setup_best_effort_registers_mac(
-    hass, mock_client
+    hass, mock_client, caplog
 ) -> None:
     """Test existing installations gain a network connection during setup."""
 
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     mock_client.get_network_info.return_value = _network_info()
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -725,6 +735,11 @@ async def test_existing_entry_setup_best_effort_registers_mac(
     )
     assert robot is not None
     assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) in robot.connections
+    assert "Starting robot network identity registration" in caplog.text
+    assert "station_ip=192.168.1.176" in caplog.text
+    assert f"station_mac={DISCOVERED_MAC}" in caplog.text
+    assert f"normalized_mac={DISCOVERED_MAC}" in caplog.text
+    assert "expected_connection_present=True" in caplog.text
 
 
 async def test_network_info_failure_does_not_break_existing_setup(
@@ -798,10 +813,11 @@ async def test_existing_setup_registers_multiple_robots_independently(
 
 
 async def test_existing_setup_does_not_merge_robots_with_duplicate_mac(
-    hass, mock_client
+    hass, mock_client, caplog
 ) -> None:
     """Test an ambiguous reported MAC cannot merge two physical robots."""
 
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360")
     second_device = Device(
         id="second-test-device",
         name="Second Test Robot",
@@ -834,3 +850,5 @@ async def test_existing_setup_does_not_merge_robots_with_duplicate_mac(
     assert first.id != second.id
     assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) not in first.connections
     assert (dr.CONNECTION_NETWORK_MAC, DISCOVERED_MAC) not in second.connections
+    assert "Robot network identity is ambiguous" in caplog.text
+    assert "matches=2" in caplog.text
