@@ -1,5 +1,6 @@
 homeassistant==2026.9.4
 botslab360==0.7.0
+PyTurboJPEG==1.8.3
 pytest-homeassistant-custom-component
 pytest-cov
 ruff
