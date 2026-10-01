@@ -1,0 +1,9 @@
+homeassistant==2026.9.4
+botslab360==0.7.0
+PyTurboJPEG==1.8.3
+aiodhcpwatcher==1.2.7
+aiodiscover==3.3.2
+cached-ipaddress==1.1.2
+pytest-homeassistant-custom-component
+pytest-cov
+ruff
