@@ -125,18 +125,16 @@ Device and Area structure:
 the analyzed Android app. It is not a verified room sweep/mop selector and must
 not be exposed as one or sent as a numeric room preference.
 
-Cleaning mode is represented by the device-reported `mop_status` hardware state
-and the verified public `client.set_mop_only()` command. On the tested S9-P,
-`mop_status` 0 means the wiping assembly is absent and 1 means it is present.
-Unknown integer values remain model-dependent and must not be assigned a guessed
-meaning. Mop-only off uses vendor switch value 1; mop-only on uses value 2.
-Water level remains independent from cleaning mode.
+The device-reported `mop_status` describes wiping-hardware presence on the
+tested S9-P: 0 means absent and 1 means present. Unknown integer values remain
+model-dependent and must not be assigned a guessed meaning. It is not a stored
+room cleaning-plan mode.
 
-The known status payload does not report the current mop-only switch. The robot
-cleaning-mode select may therefore keep a runtime-only optimistic value after a
-successful command, but it must not persist or invent that value across reloads
-or restarts. Do not infer it from `RobotStatus.state`, `SweepArea.mode`,
-`waterPump`, or the unverified `SweepStrategy.cleanMode` path.
+The vendor app presents cleaning plans per room. Until their protocol
+representation is verified and exposed through a public library API, do not
+expose a global or per-room cleaning-mode select. In particular, do not
+reinterpret `RobotStatus.state`, `SweepArea.mode`, `waterPump`, `mop_status`, or
+the robot-wide `client.set_mop_only()` command as that room setting.
 
 Each room button must:
 

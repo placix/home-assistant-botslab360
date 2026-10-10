@@ -13,7 +13,6 @@ are not inferred from unrelated protocol fields.
 | Cleaned area | Sensor | `RobotStatus.cleaned_area_m2` | Enabled | None | Current run area in m². |
 | Cleaning time | Sensor | `RobotStatus.cleaning_time_seconds` | Enabled | None | Current run duration in seconds. |
 | Error code | Sensor | `RobotStatus.error_code` | Enabled | Diagnostic | Vendor error code; zero means no reported error. |
-| Cleaning mode | Select | `mop_status`, `set_mop_only()` | Enabled | None | Hardware-aware sweep/sweep-and-mop/mop control; installed hardware with unreadable mop-only state remains unknown after restart. |
 | Wiping assembly | Binary sensor | `RobotStatus.mop_status` | Enabled | None | `0` absent, `1` present; all other or missing values are unknown. |
 | Start cleaning job | Button | HA room-job state, `clean_rooms()` | Enabled | None | Sends all currently selected room IDs. |
 | Clear room selection | Button | HA room-job state | Enabled | None | Clears the temporary selection without robot I/O. |

@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from unittest.mock import patch
 
 import pytest
-from botslab360 import ApiError, AuthenticationError, RoomCleaningSettings
+from botslab360 import RoomCleaningSettings
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.select import ATTR_OPTION
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN, EntityCategory
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import ATTR_ENTITY_ID, EntityCategory
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -23,11 +21,6 @@ from custom_components.botslab360.const import (
     CONF_WATER_PUMP,
     DOMAIN,
     LEGACY_CONF_CLEANING_MODE,
-)
-from custom_components.botslab360.select import (
-    CLEANING_MODE_MOP,
-    CLEANING_MODE_SWEEP,
-    CLEANING_MODE_SWEEP_AND_MOP,
 )
 
 from .conftest import TEST_CREDENTIALS, TEST_DEVICE, TEST_ROOMS, make_status
@@ -57,10 +50,6 @@ def _room_select(hass, room_id: int, setting: str, device_id=TEST_DEVICE.id) -> 
         SELECT_DOMAIN,
         f"{device_id}_room_{room_id}_{setting}",
     )
-
-
-def _cleaning_mode_select(hass, device_id=TEST_DEVICE.id) -> str:
-    return _entity_id(hass, SELECT_DOMAIN, f"{device_id}_cleaning_mode")
 
 
 async def _select(hass, entity_id: str, option: str) -> None:
@@ -99,116 +88,6 @@ async def test_room_selects_use_robot_templates_and_stable_unique_ids(
         )
         is None
     )
-
-
-async def test_cleaning_mode_without_wiping_assembly_allows_only_sweep(
-    hass, mock_client
-) -> None:
-    """Test mop modes are rejected when the wiping assembly is absent."""
-
-    mock_client.get_status.return_value = make_status(mop_status=0)
-    await _setup_entry(hass)
-    entity_id = _cleaning_mode_select(hass)
-
-    assert hass.states.get(entity_id).state == CLEANING_MODE_SWEEP
-    await _select(hass, entity_id, CLEANING_MODE_SWEEP)
-    mock_client.set_mop_only.assert_awaited_once_with(TEST_DEVICE, False)
-
-    with pytest.raises(HomeAssistantError) as error:
-        await _select(hass, entity_id, CLEANING_MODE_MOP)
-    assert error.value.translation_key == "wiping_assembly_required"
-
-
-async def test_cleaning_mode_with_wiping_assembly_uses_optimistic_state(
-    hass, mock_client
-) -> None:
-    """Test installed hardware supports both verified mop-switch states."""
-
-    mock_client.get_status.return_value = make_status(mop_status=1)
-    await _setup_entry(hass)
-    entity_id = _cleaning_mode_select(hass)
-
-    assert hass.states.get(entity_id).state == STATE_UNKNOWN
-    await _select(hass, entity_id, CLEANING_MODE_SWEEP_AND_MOP)
-    assert hass.states.get(entity_id).state == CLEANING_MODE_SWEEP_AND_MOP
-    mock_client.set_mop_only.assert_awaited_once_with(TEST_DEVICE, False)
-
-    mock_client.set_mop_only.reset_mock()
-    await _select(hass, entity_id, CLEANING_MODE_MOP)
-    assert hass.states.get(entity_id).state == CLEANING_MODE_MOP
-    mock_client.set_mop_only.assert_awaited_once_with(TEST_DEVICE, True)
-
-    with pytest.raises(HomeAssistantError) as error:
-        await _select(hass, entity_id, CLEANING_MODE_SWEEP)
-    assert error.value.translation_key == "remove_wiping_assembly"
-
-
-async def test_cleaning_mode_discards_optimistic_state_on_hardware_change(
-    hass, mock_client
-) -> None:
-    """Test a changed wiping assembly invalidates the local mop-only state."""
-
-    mock_client.get_status.return_value = make_status(mop_status=1)
-    entry = await _setup_entry(hass)
-    entity_id = _cleaning_mode_select(hass)
-    await _select(hass, entity_id, CLEANING_MODE_MOP)
-    assert hass.states.get(entity_id).state == CLEANING_MODE_MOP
-
-    entry.runtime_data.coordinator.async_set_updated_data(
-        {TEST_DEVICE.id: make_status(mop_status=0)}
-    )
-    await hass.async_block_till_done()
-    assert hass.states.get(entity_id).state == CLEANING_MODE_SWEEP
-
-    entry.runtime_data.coordinator.async_set_updated_data(
-        {TEST_DEVICE.id: make_status(mop_status=1)}
-    )
-    await hass.async_block_till_done()
-    assert hass.states.get(entity_id).state == STATE_UNKNOWN
-
-
-async def test_cleaning_mode_rejects_unknown_mop_status(hass, mock_client) -> None:
-    """Test unknown model-dependent status values are not reinterpreted."""
-
-    mock_client.get_status.return_value = make_status(mop_status=2)
-    await _setup_entry(hass)
-    entity_id = _cleaning_mode_select(hass)
-
-    assert hass.states.get(entity_id).state == STATE_UNKNOWN
-    with pytest.raises(HomeAssistantError) as error:
-        await _select(hass, entity_id, CLEANING_MODE_MOP)
-    assert error.value.translation_key == "mop_status_unknown"
-    mock_client.set_mop_only.assert_not_awaited()
-
-
-async def test_cleaning_mode_api_error_is_exposed(hass, mock_client) -> None:
-    """Test command API failures use the integration's translated error."""
-
-    mock_client.get_status.return_value = make_status(mop_status=1)
-    mock_client.set_mop_only.side_effect = ApiError("synthetic failure")
-    await _setup_entry(hass)
-
-    with pytest.raises(HomeAssistantError) as error:
-        await _select(hass, _cleaning_mode_select(hass), CLEANING_MODE_MOP)
-    assert error.value.translation_key == "command_failed"
-
-
-async def test_cleaning_mode_authentication_error_starts_reauth(
-    hass, mock_client
-) -> None:
-    """Test command authentication failures start config-entry reauth."""
-
-    mock_client.get_status.return_value = make_status(mop_status=1)
-    mock_client.set_mop_only.side_effect = AuthenticationError("expired")
-    entry = await _setup_entry(hass)
-
-    with (
-        patch.object(entry, "async_start_reauth") as start_reauth,
-        pytest.raises(HomeAssistantError) as error,
-    ):
-        await _select(hass, _cleaning_mode_select(hass), CLEANING_MODE_MOP)
-    assert error.value.translation_key == "invalid_auth"
-    start_reauth.assert_called_once_with(hass)
 
 
 @pytest.mark.parametrize("water_pump", [None, 0, 4])
@@ -322,7 +201,7 @@ async def test_clean_button_uses_current_preferred_settings(hass, mock_client) -
     )
 
 
-async def test_legacy_cleaning_mode_preference_and_entity_are_removed(
+async def test_retired_cleaning_mode_preferences_and_entities_are_removed(
     hass, mock_client
 ) -> None:
     """Test 0.2.4 mode state is removed and never reaches room cleaning."""
@@ -341,10 +220,16 @@ async def test_legacy_cleaning_mode_preference_and_entity_are_removed(
     )
     entry.add_to_hass(hass)
     registry = er.async_get(hass)
-    legacy = registry.async_get_or_create(
+    legacy_room_mode = registry.async_get_or_create(
         SELECT_DOMAIN,
         DOMAIN,
         f"{TEST_DEVICE.id}_room_1_{LEGACY_CONF_CLEANING_MODE}",
+        config_entry=entry,
+    )
+    legacy_robot_mode = registry.async_get_or_create(
+        SELECT_DOMAIN,
+        DOMAIN,
+        f"{TEST_DEVICE.id}_{LEGACY_CONF_CLEANING_MODE}",
         config_entry=entry,
     )
     retained_fan = registry.async_get_or_create(
@@ -358,7 +243,8 @@ async def test_legacy_cleaning_mode_preference_and_entity_are_removed(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert registry.async_get(legacy.entity_id) is None
+    assert registry.async_get(legacy_room_mode.entity_id) is None
+    assert registry.async_get(legacy_robot_mode.entity_id) is None
     assert registry.async_get(retained_fan.entity_id) is not None
     assert entry.options[CONF_ROOM_PREFERENCES] == {
         f"{TEST_DEVICE.id}:1": {CONF_FAN_MODE: "strong"}

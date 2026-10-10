@@ -25,7 +25,6 @@ S9-P. Other models may behave differently.
   information;
 - room-cleaning buttons and temporary multi-room cleaning jobs;
 - per-room suction, pass-count, and water-level controls;
-- robot cleaning modes for sweep, sweep and mop, and mop only;
 - continued support for existing legacy Q/T config entries.
 
 Everyday entities are enabled by default. Technical diagnostics are registered
@@ -86,13 +85,10 @@ rooms.
 The `botslab360.clean_rooms` action remains available for automations that need
 to select one or more room IDs or apply supported per-run settings.
 
-The robot cleaning-mode select follows the reported wiping assembly. Without
-the assembly, **Sweep** is available. With it installed, **Sweep and mop** and
-**Mop** are available, while **Sweep** is rejected until the assembly is
-removed. The robot does not report the current mop-only switch in its known
-status payload, so after a restart the select remains unknown until a mode is
-selected successfully. This optimistic state is not persisted. Water level is
-an independent per-room setting.
+Cleaning mode is not currently exposed. The vendor app presents cleaning plans
+per room, but no verified room-profile field or public API currently represents
+that setting. The integration therefore does not reinterpret `SweepArea.mode`
+or expose the robot-wide mop-only switch as a cleaning plan.
 
 ## Authentication and security
 
@@ -122,8 +118,8 @@ not a verified room sweep/mop selector.
 
 - Only the 360Robot S9-P has been verified with the current authentication,
   status, room, and control features.
-- The current mop-only state cannot be recovered from the known robot status
-  payload and is therefore not guessed or persisted.
+- Per-room cleaning-plan mode is not exposed until its vendor representation is
+  verified.
 - The experimental map renderer remains in the codebase, but the camera
   platform and map camera entities are disabled. Xiaomi Vacuum Map Card support
   and additional map features are deferred.
