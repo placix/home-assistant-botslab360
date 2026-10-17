@@ -12,6 +12,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
@@ -38,6 +39,7 @@ from botslab360 import (
 
 from . import (
     async_discard_authenticated_client,
+    async_initialize_entry_client,
     async_store_authenticated_client,
     create_client_from_entry_data,
     create_native_client_from_entry_data,
@@ -909,6 +911,26 @@ class Botslab360OptionsFlow(config_entries.OptionsFlowWithReload):
 
         self._rooms: tuple[DiscoveredRoom, ...] | None = None
 
+    async def _async_discover_rooms(self) -> ValidationResult:
+        """Reuse the runtime client, or temporarily authenticate an unloaded entry."""
+
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        client = getattr(runtime_data, "client", None)
+        if client is not None:
+            return await _async_discover(client, include_rooms=True)
+
+        async def initialize(client: Botslab360Client) -> ValidationResult:
+            await client.authenticate()
+            return await _async_discover(client, include_rooms=True)
+
+        client, validation = await async_initialize_entry_client(
+            self.hass, self.config_entry, initialize
+        )
+        try:
+            return validation
+        finally:
+            await client.close()
+
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None,
@@ -918,11 +940,8 @@ class Botslab360OptionsFlow(config_entries.OptionsFlowWithReload):
         errors: dict[str, str] = {}
         if self._rooms is None:
             try:
-                validation = await _async_discover(
-                    self.config_entry.runtime_data.client,
-                    include_rooms=True,
-                )
-            except AuthenticationError:
+                validation = await self._async_discover_rooms()
+            except (AuthenticationError, ConfigEntryAuthFailed):
                 self.config_entry.async_start_reauth(self.hass)
                 errors["base"] = "invalid_auth"
             except NoDevicesError:

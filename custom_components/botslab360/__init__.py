@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -348,11 +348,18 @@ def _async_update_cached_credentials(
     )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -> bool:
-    """Set up Botslab 360 from a config entry."""
+async def async_initialize_entry_client[T](
+    hass: HomeAssistant,
+    entry: Botslab360ConfigEntry,
+    initialize: Callable[[Botslab360Client], Awaitable[T]],
+    client: Botslab360Client | None = None,
+) -> tuple[Botslab360Client, T]:
+    """Initialize an owned client with one cached-credential fallback.
 
-    client = take_authenticated_client(hass, entry.unique_id)
-    authenticated_network_macs = take_authenticated_network_macs(hass, entry.unique_id)
+    Failed clients are closed here; the caller owns the successful client.
+    An optional authenticated handoff is never retried with native credentials.
+    """
+
     used_handoff = client is not None
     used_native_cache = False
     if client is None:
@@ -374,11 +381,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
         else:
             used_native_cache = _has_native_cached_credentials(entry.data)
 
-    coordinator = Botslab360Coordinator(hass, entry, client)
-
     try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryAuthFailed:
+        result = await initialize(client)
+    except (AuthenticationError, ConfigEntryAuthFailed):
         if used_handoff or not used_native_cache:
             await client.close()
             raise
@@ -390,9 +395,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
                 translation_domain=DOMAIN,
                 translation_key="invalid_auth",
             ) from err
-        coordinator = Botslab360Coordinator(hass, entry, client)
         try:
-            await coordinator.async_config_entry_first_refresh()
+            result = await initialize(client)
         except BaseException:
             await client.close()
             raise
@@ -401,6 +405,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
         raise
 
     _async_update_cached_credentials(hass, entry, client)
+    return client, result
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -> bool:
+    """Set up Botslab 360 from a config entry."""
+
+    client = take_authenticated_client(hass, entry.unique_id)
+    authenticated_network_macs = take_authenticated_network_macs(hass, entry.unique_id)
+
+    async def initialize(client: Botslab360Client) -> Botslab360Coordinator:
+        coordinator = Botslab360Coordinator(hass, entry, client)
+        await coordinator.async_config_entry_first_refresh()
+        return coordinator
+
+    client, coordinator = await async_initialize_entry_client(
+        hass, entry, initialize, client
+    )
 
     entry.runtime_data = Botslab360RuntimeData(
         client,
