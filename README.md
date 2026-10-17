@@ -107,7 +107,7 @@ successful authentication.
 
 All device and protocol communication is delegated to the separately released
 [`python-botslab360`](https://github.com/placix/python-botslab360) library. The
-integration currently pins `botslab360==0.7.0` and exposes the library through
+integration currently pins `botslab360==0.7.1` and exposes the library through
 Home Assistant-native entities, actions, config flows, and diagnostics.
 
 The vendor `SweepArea.mode` field is deliberately not exposed as a cleaning
@@ -141,4 +141,4 @@ protocol research and implementation references. This is an independent
 project; TA2k is not one of its maintainers. The integration icon is derived
 from that MIT-licensed project's icon; see [ATTRIBUTION.md](ATTRIBUTION.md).
 
-Version `0.6.2` is licensed under the [MIT License](LICENSE).
+Version `0.6.4` is licensed under the [MIT License](LICENSE).

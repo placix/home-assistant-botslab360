@@ -258,7 +258,7 @@ async def test_captcha_continues_on_same_client(hass, mock_client) -> None:
     assert result["data"] == TEST_NATIVE_ENTRY_DATA
     assert CONF_CAPTCHA_CODE not in result["data"]
     assert "sc" not in result["data"]
-    factory_mock.assert_called_once_with(TEST_NATIVE_ENTRY_DATA)
+    factory_mock.assert_called_once_with(hass, TEST_NATIVE_ENTRY_DATA)
     identity_mock.assert_called_once_with()
     mock_client.continue_authentication.assert_awaited_once()
     args = mock_client.continue_authentication.await_args.args

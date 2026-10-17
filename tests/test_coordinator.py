@@ -71,25 +71,41 @@ async def test_coordinator_updates_all_discovered_devices(hass, mock_client) -> 
     mock_client.get_rooms.assert_not_awaited()
 
 
-def test_legacy_entry_uses_q_t_client_constructor() -> None:
+def test_legacy_entry_uses_q_t_client_constructor(hass) -> None:
     """Test existing Q/T entries keep using the legacy public API."""
 
-    with patch("custom_components.botslab360.Botslab360Client") as client_class:
-        client = create_client_from_entry_data(TEST_CREDENTIALS)
+    http_client = MagicMock()
+    with (
+        patch("custom_components.botslab360.Botslab360Client") as client_class,
+        patch(
+            "custom_components.botslab360.get_async_client",
+            return_value=http_client,
+        ) as get_client,
+    ):
+        client = create_client_from_entry_data(hass, TEST_CREDENTIALS)
 
     assert client is client_class.return_value
     client_class.assert_called_once_with(
         TEST_CREDENTIALS["q"],
         TEST_CREDENTIALS["t"],
+        http_client=http_client,
     )
+    get_client.assert_called_once_with(hass)
     client_class.from_credentials.assert_not_called()
 
 
-def test_native_entry_uses_saved_backend_and_identity() -> None:
+def test_native_entry_uses_saved_backend_and_identity(hass) -> None:
     """Test native entries reconstruct their credential client exactly."""
 
-    with patch("custom_components.botslab360.Botslab360Client") as client_class:
-        client = create_client_from_entry_data(TEST_NATIVE_ENTRY_DATA)
+    http_client = MagicMock()
+    with (
+        patch("custom_components.botslab360.Botslab360Client") as client_class,
+        patch(
+            "custom_components.botslab360.get_async_client",
+            return_value=http_client,
+        ) as get_client,
+    ):
+        client = create_client_from_entry_data(hass, TEST_NATIVE_ENTRY_DATA)
 
     assert client is client_class.from_credentials.return_value
     client_class.assert_not_called()
@@ -97,13 +113,15 @@ def test_native_entry_uses_saved_backend_and_identity() -> None:
     assert call.kwargs["email"] == TEST_NATIVE_ENTRY_DATA["email"]
     assert call.kwargs["password"] == TEST_NATIVE_ENTRY_DATA["password"]
     assert call.kwargs["backend"] is AuthBackend.ROBOT360
+    assert call.kwargs["http_client"] is http_client
     assert call.kwargs["device_identity"].mid == ("0123456789abcdef0123456789abcdef")
     assert call.kwargs["device_identity"].android_id == ("0123456789abcdef")
     assert call.kwargs["device_identity"].m2 == ("00000000-0000-4000-8000-000000000001")
     assert "region" not in call.kwargs
+    get_client.assert_called_once_with(hass)
 
 
-def test_native_entry_prefers_cached_q_t_client() -> None:
+def test_native_entry_prefers_cached_q_t_client(hass) -> None:
     """Test cached native credentials remain distinct from legacy entry data."""
 
     data = {
@@ -111,14 +129,23 @@ def test_native_entry_prefers_cached_q_t_client() -> None:
         CONF_CACHED_Q: TEST_CACHED_CREDENTIALS.q,
         CONF_CACHED_T: TEST_CACHED_CREDENTIALS.t,
     }
-    with patch("custom_components.botslab360.Botslab360Client") as client_class:
-        client = create_client_from_entry_data(data)
+    http_client = MagicMock()
+    with (
+        patch("custom_components.botslab360.Botslab360Client") as client_class,
+        patch(
+            "custom_components.botslab360.get_async_client",
+            return_value=http_client,
+        ) as get_client,
+    ):
+        client = create_client_from_entry_data(hass, data)
 
     assert client is client_class.return_value
     client_class.assert_called_once_with(
         TEST_CACHED_CREDENTIALS.q,
         TEST_CACHED_CREDENTIALS.t,
+        http_client=http_client,
     )
+    get_client.assert_called_once_with(hass)
     client_class.from_credentials.assert_not_called()
 
 
@@ -201,7 +228,7 @@ async def test_native_entry_without_handoff_authenticates_after_restart(
         await hass.async_block_till_done()
 
     assert entry.runtime_data.client is mock_client
-    factory.assert_called_once_with(TEST_NATIVE_ENTRY_DATA)
+    factory.assert_called_once_with(hass, TEST_NATIVE_ENTRY_DATA)
     mock_client.authenticate.assert_awaited_once()
     mock_client.get_devices.assert_awaited_once()
 
@@ -224,7 +251,14 @@ async def test_native_restart_uses_cached_q_t_without_quc_login(hass, caplog) ->
     )
     entry.add_to_hass(hass)
 
-    with patch("custom_components.botslab360.Botslab360Client") as client_class:
+    http_client = MagicMock()
+    with (
+        patch("custom_components.botslab360.Botslab360Client") as client_class,
+        patch(
+            "custom_components.botslab360.get_async_client",
+            return_value=http_client,
+        ),
+    ):
         client_class.return_value = cached_client
         client_class.from_credentials.side_effect = AssertionError(
             "native QUC login must not run with valid cached Q/T"
@@ -237,6 +271,7 @@ async def test_native_restart_uses_cached_q_t_without_quc_login(hass, caplog) ->
     client_class.assert_called_once_with(
         TEST_CACHED_CREDENTIALS.q,
         TEST_CACHED_CREDENTIALS.t,
+        http_client=http_client,
     )
     client_class.from_credentials.assert_not_called()
     cached_client.authenticate.assert_awaited_once()

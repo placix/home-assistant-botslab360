@@ -682,9 +682,9 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client: Botslab360Client | None = None
         try:
             client = (
-                create_native_client_from_entry_data(entry_data)
+                create_native_client_from_entry_data(self.hass, entry_data)
                 if CONF_EMAIL in entry_data
-                else create_client_from_entry_data(entry_data)
+                else create_client_from_entry_data(self.hass, entry_data)
             )
             await client.authenticate()
             validation = await _async_discover(

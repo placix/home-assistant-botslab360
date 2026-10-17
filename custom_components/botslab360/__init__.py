@@ -13,6 +13,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.typing import ConfigType
 
 from botslab360 import (
@@ -270,19 +271,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 def create_client_from_entry_data(
+    hass: HomeAssistant,
     data: Mapping[str, Any],
 ) -> Botslab360Client:
     """Create a library client for legacy or native entry data."""
 
     if CONF_Q in data and CONF_T in data:
-        return Botslab360Client(data[CONF_Q], data[CONF_T])
+        return Botslab360Client(
+            data[CONF_Q],
+            data[CONF_T],
+            http_client=get_async_client(hass),
+        )
     if CONF_CACHED_Q in data and CONF_CACHED_T in data:
-        return Botslab360Client(data[CONF_CACHED_Q], data[CONF_CACHED_T])
+        return Botslab360Client(
+            data[CONF_CACHED_Q],
+            data[CONF_CACHED_T],
+            http_client=get_async_client(hass),
+        )
 
-    return create_native_client_from_entry_data(data)
+    return create_native_client_from_entry_data(hass, data)
 
 
 def create_native_client_from_entry_data(
+    hass: HomeAssistant,
     data: Mapping[str, Any],
 ) -> Botslab360Client:
     """Create a native credential client while retaining its device identity."""
@@ -298,6 +309,7 @@ def create_native_client_from_entry_data(
         password=data[CONF_PASSWORD],
         backend=AuthBackend(data[CONF_AUTH_BACKEND]),
         device_identity=identity,
+        http_client=get_async_client(hass),
     )
 
 
@@ -345,7 +357,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
     used_native_cache = False
     if client is None:
         try:
-            client = create_client_from_entry_data(entry.data)
+            client = create_client_from_entry_data(hass, entry.data)
         except (AuthenticationError, KeyError, ValueError) as err:
             if not _has_native_cached_credentials(entry.data):
                 raise ConfigEntryAuthFailed(
@@ -353,7 +365,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
                     translation_key="invalid_auth",
                 ) from err
             try:
-                client = create_native_client_from_entry_data(entry.data)
+                client = create_native_client_from_entry_data(hass, entry.data)
             except (AuthenticationError, KeyError, ValueError) as fallback_err:
                 raise ConfigEntryAuthFailed(
                     translation_domain=DOMAIN,
@@ -372,7 +384,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
             raise
         await client.close()
         try:
-            client = create_native_client_from_entry_data(entry.data)
+            client = create_native_client_from_entry_data(hass, entry.data)
         except (AuthenticationError, KeyError, ValueError) as err:
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN,
