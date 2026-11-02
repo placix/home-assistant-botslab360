@@ -1,7 +1,7 @@
 # Botslab 360 for Home Assistant
 
 [![Validate](https://github.com/placix/home-assistant-botslab360/actions/workflows/validate.yml/badge.svg)](https://github.com/placix/home-assistant-botslab360/actions/workflows/validate.yml)
-[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://www.hacs.xyz/)
+[![HACS](https://img.shields.io/badge/HACS-Integration-41BDF5.svg)](https://www.hacs.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Botslab 360 is an unofficial Home Assistant custom integration for Botslab / 360
@@ -34,14 +34,25 @@ unknown-value behavior.
 
 ## Installation
 
-### HACS custom repository
+### HACS (recommended)
 
-1. In HACS, open **Integrations**, then the menu and **Custom repositories**.
+1. Open **HACS** in Home Assistant.
+2. Search for **Botslab 360**.
+3. Open **Botslab 360** and download the integration.
+4. Restart Home Assistant.
+5. Under **Settings → Devices & services**, select **Add integration**, search
+   for **Botslab 360**, and add it.
+
+### HACS custom repository (fallback)
+
+If Botslab 360 does not appear in HACS search, add it manually:
+
+1. In HACS, open the three-dot menu and select **Custom repositories**.
 2. Add `https://github.com/placix/home-assistant-botslab360` as an
    **Integration** repository.
-3. Install **Botslab 360** and restart Home Assistant.
-4. Open **Settings → Devices & services → Add integration**, search for
-   **Botslab 360**, and add it.
+3. Find **Botslab 360** in HACS and download the integration.
+4. Restart Home Assistant.
+5. Add **Botslab 360** under **Settings → Devices & services**.
 
 ### Manual
 
@@ -50,6 +61,10 @@ your Home Assistant configuration, restart Home Assistant, then add the
 integration from **Settings → Devices & services**.
 
 ## Requirements and setup
+
+Home Assistant **2026.9.0 or newer** is required. Room entities use the child
+device registry APIs introduced in that release. The minimum version is
+declared in `hacs.json` so HACS can check compatibility before installation.
 
 The robot must belong to either a Botslab / CloudSmart account or an original
 360Robot account. These services use different account systems, so select the
