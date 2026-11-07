@@ -118,6 +118,10 @@ def _log_authentication_result(
     stage: str,
     result: str,
     error: Exception | None = None,
+    *,
+    device_count: int | None = None,
+    room_count: int | None = None,
+    device_index: int | None = None,
 ) -> None:
     """Log only allowlisted stages and numeric API metadata, never exception text."""
 
@@ -154,13 +158,16 @@ def _log_authentication_result(
     _LOGGER.debug(
         "Authentication: backend=%s stage=%s result=%s phase=%s "
         "errno=%s response_errno=%s error_code=%s http_status=%s "
-        "transport_error_type=%s",
+        "transport_error_type=%s device_count=%s room_count=%s device_index=%s",
         backend_name,
         stage,
         result,
         phase,
         *details,
         _transport_error_type(error) if phase == "transport" else None,
+        device_count,
+        room_count,
+        device_index,
     )
 
 
@@ -286,8 +293,17 @@ async def _async_discover(
     include_rooms: bool,
     discovery_mac: str | None = None,
 ) -> ValidationResult:
-    devices = await client.get_devices()
+    _log_authentication_result(client, "device_list", "started")
+    try:
+        devices = await client.get_devices()
+    except (ApiError, TimeoutError, OSError) as err:
+        _log_authentication_result(client, "device_list", "failed", err)
+        raise
+    _log_authentication_result(
+        client, "device_list", "succeeded", device_count=len(devices)
+    )
     if not devices:
+        _log_authentication_result(client, "device_list", "no_devices", device_count=0)
         raise NoDevicesError
     verified_network_macs: dict[str, str] = {}
     unverified_network_device_ids: list[str] = []
@@ -324,10 +340,25 @@ async def _async_discover(
             )
     rooms: list[DiscoveredRoom] = []
     if include_rooms:
-        for device in devices:
-            rooms.extend(
-                DiscoveredRoom(device, room) for room in await client.get_rooms(device)
+        for device_index, device in enumerate(devices, start=1):
+            _log_authentication_result(
+                client, "rooms", "started", device_index=device_index
             )
+            try:
+                device_rooms = await client.get_rooms(device)
+            except (ApiError, TimeoutError, OSError) as err:
+                _log_authentication_result(
+                    client, "rooms", "failed", err, device_index=device_index
+                )
+                raise
+            _log_authentication_result(
+                client,
+                "rooms",
+                "succeeded",
+                room_count=len(device_rooms),
+                device_index=device_index,
+            )
+            rooms.extend(DiscoveredRoom(device, room) for room in device_rooms)
     return ValidationResult(
         account_fingerprint=client.account_fingerprint,
         title=devices[0].name or "Botslab 360",
@@ -718,15 +749,11 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         ),
                     )
                 except NoDevicesError:
-                    _log_authentication_result(client, "discovery", "no_devices")
                     return await self._async_return_to_origin("no_devices")
-                except AuthenticationError as err:
-                    _log_authentication_result(client, "discovery", "failed", err)
+                except AuthenticationError:
                     return await self._async_return_to_origin("invalid_auth")
-                except (ApiError, TimeoutError, OSError) as err:
-                    _log_authentication_result(client, "discovery", "failed", err)
+                except (ApiError, TimeoutError, OSError):
                     return await self._async_return_to_origin("cannot_connect")
-                _log_authentication_result(client, "discovery", "succeeded")
                 data = self._pending_data
                 reauth = self._pending_reauth
                 return await self._async_finish_validation(
@@ -823,27 +850,24 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._pending_reauth = reauth
             return None
         except AuthenticationError as err:
-            _log_authentication_result(
-                client,
-                _authentication_stage(client, err)
-                if client is not None and stage == "authentication"
-                else stage,
-                "failed",
-                err,
-            )
+            if stage == "authentication":
+                _log_authentication_result(
+                    client,
+                    _authentication_stage(client, err) if client is not None else stage,
+                    "failed",
+                    err,
+                )
             self._last_errors["base"] = "invalid_auth"
         except NoDevicesError:
-            _log_authentication_result(client, "discovery", "no_devices")
             self._last_errors["base"] = "no_devices"
         except (ApiError, TimeoutError, OSError) as err:
-            _log_authentication_result(
-                client,
-                _authentication_stage(client, err)
-                if client is not None and stage == "authentication"
-                else stage,
-                "failed",
-                err,
-            )
+            if stage == "authentication":
+                _log_authentication_result(
+                    client,
+                    _authentication_stage(client, err) if client is not None else stage,
+                    "failed",
+                    err,
+                )
             self._last_errors["base"] = "cannot_connect"
         except (KeyError, ValueError):
             self._last_errors["base"] = "invalid_auth"

@@ -1,6 +1,7 @@
 """Stage-aware captcha continuation errors and secret-free diagnostics."""
 
 import logging
+from dataclasses import replace
 from unittest.mock import patch
 
 import httpx
@@ -27,8 +28,10 @@ from custom_components.botslab360.const import DOMAIN
 from .conftest import (
     TEST_ACCOUNT_FINGERPRINT,
     TEST_CACHED_CREDENTIALS,
+    TEST_DEVICE,
     TEST_NATIVE_ENTRY_DATA,
     TEST_NATIVE_INPUT,
+    TEST_ROOMS,
 )
 from .test_config_flow import TEST_CAPTCHA, TEST_CAPTCHA_CODE, _submit_user_flow
 
@@ -57,7 +60,7 @@ async def test_discovery_transport_type_is_logged(
         captcha["flow_id"], {CONF_CAPTCHA_CODE: TEST_CAPTCHA_CODE}
     )
     assert result["errors"] == {"base": "cannot_connect"}
-    assert "stage=discovery result=failed phase=transport" in caplog.text
+    assert "stage=device_list result=failed phase=transport" in caplog.text
     assert f"transport_error_type={cause_type.__name__}" in caplog.text
     assert "synthetic-private" not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
@@ -266,8 +269,110 @@ async def test_discovery_after_captcha_is_separate(
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": expected}
     assert "stage=smart_home result=succeeded" in caplog.text
-    assert "stage=discovery result=" in caplog.text
+    assert "stage=device_list result=" in caplog.text
+    assert "stage=rooms" not in caplog.text
+    if error is None:
+        assert "stage=device_list result=no_devices" in caplog.text
+        assert "device_count=0" in caplog.text
     mock_client.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("captcha_required", [False, True])
+@pytest.mark.parametrize("failed_stage", ["device_list", "rooms"])
+async def test_discovery_failure_identifies_actual_stage(
+    hass, mock_client, caplog, captcha_required, failed_stage
+) -> None:
+    """Both entry paths locate unchained push/API transport failures precisely."""
+
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    error = ApiError("synthetic-private-push-failure", phase="transport")
+    if failed_stage == "device_list":
+        mock_client.get_devices.side_effect = error
+    else:
+        mock_client.get_rooms.side_effect = error
+    if captcha_required:
+        mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
+    result = await _submit_user_flow(hass)
+    if captcha_required:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CAPTCHA_CODE: TEST_CAPTCHA_CODE}
+        )
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert f"stage={failed_stage} result=failed phase=transport" in caplog.text
+    assert "transport_error_type=None" in caplog.text
+    assert "stage=discovery" not in caplog.text
+    if failed_stage == "device_list":
+        assert "stage=rooms" not in caplog.text
+        mock_client.get_rooms.assert_not_awaited()
+    else:
+        assert "stage=device_list result=succeeded" in caplog.text
+        assert "device_count=1" in caplog.text
+        assert "stage=rooms result=started" in caplog.text
+    mock_client.close.assert_awaited_once()
+    assert not hass.config_entries.async_entries(DOMAIN)
+    diagnostic_text = "\n".join(
+        record.getMessage() for record in caplog.records if record.name == LOGGER
+    )
+    for secret in (
+        str(error),
+        TEST_DEVICE.id,
+        TEST_DEVICE.name,
+        TEST_ACCOUNT_FINGERPRINT,
+        TEST_CAPTCHA.sc,
+        TEST_CAPTCHA_CODE,
+        TEST_NATIVE_INPUT["email"],
+        TEST_NATIVE_INPUT["password"],
+        TEST_CACHED_CREDENTIALS.q,
+        TEST_CACHED_CREDENTIALS.t,
+        TEST_CACHED_CREDENTIALS.qid,
+    ):
+        assert secret not in diagnostic_text
+
+
+@pytest.mark.parametrize("captcha_required", [False, True])
+async def test_discovery_success_logs_counts_for_each_device(
+    hass, mock_client, caplog, captcha_required
+) -> None:
+    """Multi-robot diagnostics expose counts and ordinal indices, not identities."""
+
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    second_device = replace(
+        TEST_DEVICE, id="private-second-id", name="private-second-name"
+    )
+    mock_client.get_devices.return_value = [TEST_DEVICE, second_device]
+    mock_client.get_rooms.side_effect = [TEST_ROOMS, TEST_ROOMS[:1]]
+    if captcha_required:
+        mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
+    result = await _submit_user_flow(hass)
+    if captcha_required:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CAPTCHA_CODE: TEST_CAPTCHA_CODE}
+        )
+    assert result["step_id"] == "room_areas"
+    diagnostics = [
+        record.getMessage() for record in caplog.records if record.name == LOGGER
+    ]
+    assert any(
+        "stage=device_list result=succeeded" in line and "device_count=2" in line
+        for line in diagnostics
+    )
+    for index, count in ((1, 2), (2, 1)):
+        assert any(
+            "stage=rooms result=succeeded" in line
+            and f"room_count={count} device_index={index}" in line
+            for line in diagnostics
+        )
+    assert "stage=discovery" not in "\n".join(diagnostics)
+    for private_value in (
+        TEST_DEVICE.id,
+        TEST_DEVICE.name,
+        second_device.id,
+        second_device.name,
+        *(room.name for room in TEST_ROOMS),
+    ):
+        assert private_value not in "\n".join(diagnostics)
+    assert mock_client.get_rooms.await_args_list[0].args == (TEST_DEVICE,)
+    assert mock_client.get_rooms.await_args_list[1].args == (second_device,)
 
 
 def test_diagnostics_never_log_arbitrary_exception_metadata(
