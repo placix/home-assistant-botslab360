@@ -12,7 +12,8 @@
       "invalid_auth": "Authentication failed.",
       "invalid_captcha": "The verification code was not accepted.",
       "no_devices": "No Botslab devices were found for this account.",
-      "reauth_wrong_account": "The credentials belong to a different account."
+      "reauth_wrong_account": "The credentials belong to a different account.",
+      "session_auth_failed": "Account verification succeeded, but the robot service rejected the session. This does not mean the verification code was incorrect."
     },
     "step": {
       "captcha": {

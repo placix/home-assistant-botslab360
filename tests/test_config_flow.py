@@ -8,6 +8,7 @@ from botslab360 import (
     AuthenticationError,
     CaptchaChallenge,
     CaptchaRequired,
+    QucAuthenticationError,
 )
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
@@ -453,7 +454,16 @@ async def test_incorrect_captcha_stays_in_captcha_step(hass, mock_client) -> Non
     """Test an incorrect captcha is reported without leaking its value."""
 
     mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
-    mock_client.continue_authentication.side_effect = AuthenticationError("5011")
+    mock_client.continue_authentication.side_effect = QucAuthenticationError(
+        "incorrect captcha",
+        region=None,
+        errno=5011,
+        errmsg=None,
+        status_code=200,
+        user_present=False,
+        captcha_required=False,
+        captcha_type="graph",
+    )
     captcha = await _submit_user_flow(hass)
     result = await hass.config_entries.flow.async_configure(
         captcha["flow_id"],

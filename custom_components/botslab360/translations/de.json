@@ -12,7 +12,8 @@
       "invalid_auth": "Authentifizierung fehlgeschlagen.",
       "invalid_captcha": "Der Bestätigungscode wurde nicht akzeptiert.",
       "no_devices": "Für dieses Konto wurden keine Botslab-Geräte gefunden.",
-      "reauth_wrong_account": "Die Zugangsdaten gehören zu einem anderen Konto."
+      "reauth_wrong_account": "Die Zugangsdaten gehören zu einem anderen Konto.",
+      "session_auth_failed": "Die Kontoprüfung war erfolgreich, aber der Roboterdienst hat die Sitzung abgelehnt. Das bedeutet nicht, dass der Bestätigungscode falsch war."
     },
     "step": {
       "captcha": {

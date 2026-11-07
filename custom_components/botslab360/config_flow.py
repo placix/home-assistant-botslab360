@@ -35,6 +35,8 @@ from botslab360 import (
     CaptchaRequired,
     Device,
     DeviceIdentity,
+    InvalidSessionError,
+    QucAuthenticationError,
 )
 
 from . import (
@@ -70,6 +72,63 @@ from .network import (
 CONF_CAPTCHA_CODE = "captcha_code"
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _authentication_stage(client: Botslab360Client, error: Exception) -> str:
+    """Locate a continuation failure without inspecting credentials or error text."""
+
+    if isinstance(error, QucAuthenticationError) or client.credentials is None:
+        return "quc"
+    return "smart_home"
+
+
+def _log_authentication_result(
+    client: Botslab360Client | None,
+    stage: str,
+    result: str,
+    error: Exception | None = None,
+) -> None:
+    """Log only allowlisted stages and numeric API metadata, never exception text."""
+
+    backend = client.auth_backend if client is not None else None
+    backend_name = backend.value if isinstance(backend, AuthBackend) else "unknown"
+    phase = "transport" if isinstance(error, (TimeoutError, OSError)) else None
+    details: list[int | None] = [None, None, None, None]
+    if isinstance(error, ApiError):
+        phase = (
+            error.phase
+            if error.phase
+            in {
+                "api",
+                "quc-login",
+                "captcha",
+                "authentication",
+                "input",
+                "http",
+                "transport",
+                "json",
+                "response-validation",
+            }
+            else "unknown"
+        )
+        details = [
+            value if type(value) is int else None
+            for value in (
+                error.errno,
+                error.response_errno,
+                error.error_code,
+                error.status_code,
+            )
+        ]
+    _LOGGER.debug(
+        "Authentication: backend=%s stage=%s result=%s phase=%s "
+        "errno=%s response_errno=%s error_code=%s http_status=%s",
+        backend_name,
+        stage,
+        result,
+        phase,
+        *details,
+    )
 
 
 class NoDevicesError(Exception):
@@ -588,13 +647,35 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input[CONF_CAPTCHA_CODE],
                 )
             except CaptchaRequired as err:
+                _log_authentication_result(client, "quc", "captcha_required", err)
                 self._pending_challenge = err.challenge
                 errors["base"] = "invalid_captcha"
-            except AuthenticationError:
-                errors["base"] = "invalid_captcha"
-            except (ApiError, TimeoutError, OSError):
-                errors["base"] = "cannot_connect"
+            except QucAuthenticationError as err:
+                _log_authentication_result(client, "quc", "failed", err)
+                if err.phase == "response-validation":
+                    return await self._async_return_to_origin("cannot_connect")
+                if err.errno in (5010, 5011):
+                    errors["base"] = "invalid_captcha"
+                else:
+                    return await self._async_return_to_origin("invalid_auth")
+            except (ApiError, TimeoutError, OSError) as err:
+                stage = _authentication_stage(client, err)
+                if stage == "smart_home":
+                    _log_authentication_result(client, "quc", "succeeded")
+                _log_authentication_result(client, stage, "failed", err)
+                if isinstance(err, (AuthenticationError, InvalidSessionError)):
+                    error = (
+                        "session_auth_failed"
+                        if stage == "smart_home"
+                        else "invalid_auth"
+                    )
+                else:
+                    error = "cannot_connect"
+                # QUC may already have completed; do not resubmit its used challenge.
+                return await self._async_return_to_origin(error)
             else:
+                _log_authentication_result(client, "quc", "succeeded")
+                _log_authentication_result(client, "smart_home", "succeeded")
                 try:
                     validation = await _async_discover(
                         client,
@@ -604,11 +685,15 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         ),
                     )
                 except NoDevicesError:
+                    _log_authentication_result(client, "discovery", "no_devices")
                     return await self._async_return_to_origin("no_devices")
-                except AuthenticationError:
+                except AuthenticationError as err:
+                    _log_authentication_result(client, "discovery", "failed", err)
                     return await self._async_return_to_origin("invalid_auth")
-                except (ApiError, TimeoutError, OSError):
+                except (ApiError, TimeoutError, OSError) as err:
+                    _log_authentication_result(client, "discovery", "failed", err)
                     return await self._async_return_to_origin("cannot_connect")
+                _log_authentication_result(client, "discovery", "succeeded")
                 data = self._pending_data
                 reauth = self._pending_reauth
                 return await self._async_finish_validation(
@@ -682,6 +767,7 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult | None:
         self._last_errors = {}
         client: Botslab360Client | None = None
+        stage = "authentication"
         try:
             client = (
                 create_native_client_from_entry_data(self.hass, entry_data)
@@ -689,22 +775,42 @@ class Botslab360ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else create_client_from_entry_data(self.hass, entry_data)
             )
             await client.authenticate()
+            _log_authentication_result(client, stage, "succeeded")
+            stage = "discovery"
             validation = await _async_discover(
                 client,
                 include_rooms=not reauth,
                 discovery_mac=self._discovery_mac if not reauth else None,
             )
         except CaptchaRequired as err:
+            _log_authentication_result(client, "quc", "captcha_required", err)
             self._pending_client = client
             self._pending_challenge = err.challenge
             self._pending_data = entry_data
             self._pending_reauth = reauth
             return None
-        except AuthenticationError:
+        except AuthenticationError as err:
+            _log_authentication_result(
+                client,
+                _authentication_stage(client, err)
+                if client is not None and stage == "authentication"
+                else stage,
+                "failed",
+                err,
+            )
             self._last_errors["base"] = "invalid_auth"
         except NoDevicesError:
+            _log_authentication_result(client, "discovery", "no_devices")
             self._last_errors["base"] = "no_devices"
-        except (ApiError, TimeoutError, OSError):
+        except (ApiError, TimeoutError, OSError) as err:
+            _log_authentication_result(
+                client,
+                _authentication_stage(client, err)
+                if client is not None and stage == "authentication"
+                else stage,
+                "failed",
+                err,
+            )
             self._last_errors["base"] = "cannot_connect"
         except (KeyError, ValueError):
             self._last_errors["base"] = "invalid_auth"
