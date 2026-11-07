@@ -3,6 +3,7 @@
 import logging
 from unittest.mock import patch
 
+import httpx
 import pytest
 from botslab360 import (
     ApiError,
@@ -32,6 +33,58 @@ from .conftest import (
 from .test_config_flow import TEST_CAPTCHA, TEST_CAPTCHA_CODE, _submit_user_flow
 
 LOGGER = "custom_components.botslab360.config_flow"
+
+
+@pytest.mark.parametrize(
+    "cause_type",
+    [httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError, httpx.ReadTimeout],
+)
+async def test_discovery_transport_type_is_logged(
+    hass, mock_client, caplog, cause_type
+):
+    """A real library-style cause survives discovery classification without its text."""
+
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    mock_client.authenticate.side_effect = CaptchaRequired(TEST_CAPTCHA)
+    captcha = await _submit_user_flow(hass)
+    error = ApiError("synthetic-private-wrapper", phase="transport")
+    error.__cause__ = cause_type(
+        "synthetic-private-message",
+        request=httpx.Request("GET", "https://example.invalid/synthetic-private-url"),
+    )
+    mock_client.get_devices.side_effect = error
+    result = await hass.config_entries.flow.async_configure(
+        captcha["flow_id"], {CONF_CAPTCHA_CODE: TEST_CAPTCHA_CODE}
+    )
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert "stage=discovery result=failed phase=transport" in caplog.text
+    assert f"transport_error_type={cause_type.__name__}" in caplog.text
+    assert "synthetic-private" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.parametrize("kind", ["custom", "subclass", "missing", "timeout"])
+def test_transport_diagnostics_allowlist(mock_client, caplog, kind):
+    """Unknown names and chained exception messages are never printed."""
+
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    error = ApiError("synthetic-private-message", phase="transport")
+    expected = "unknown"
+    if kind in {"custom", "subclass"}:
+        base = httpx.ReadError if kind == "subclass" else Exception
+        error.__cause__ = type("synthetic-private-class", (base,), {})(
+            "synthetic-private-cause"
+        )
+        expected = "ReadError" if kind == "subclass" else "unknown"
+    elif kind == "missing":
+        expected = "None"
+    else:
+        error = TimeoutError("synthetic-private-message")
+        expected = "TimeoutError"
+    _log_authentication_result(mock_client, "discovery", "failed", error)
+    assert f"transport_error_type={expected}" in caplog.text
+    assert "synthetic-private" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 def _quc_error(errno, *, phase="quc-login"):

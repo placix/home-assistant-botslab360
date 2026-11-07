@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
+import httpx
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
@@ -74,6 +75,36 @@ CONF_CAPTCHA_CODE = "captcha_code"
 _LOGGER = logging.getLogger(__name__)
 
 
+def _transport_error_type(error: Exception | None) -> str | None:
+    """Identify known transport classes without exposing messages or custom names."""
+
+    cause = error.__cause__ if isinstance(error, ApiError) else error
+    if cause is None:
+        return None
+    for known_type in (
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.WriteTimeout,
+        httpx.PoolTimeout,
+        httpx.ConnectError,
+        httpx.ReadError,
+        httpx.WriteError,
+        httpx.CloseError,
+        httpx.RemoteProtocolError,
+        httpx.LocalProtocolError,
+        httpx.ProxyError,
+        httpx.UnsupportedProtocol,
+        httpx.DecodingError,
+        httpx.TooManyRedirects,
+        httpx.RequestError,
+        TimeoutError,
+        OSError,
+    ):
+        if isinstance(cause, known_type):
+            return known_type.__name__
+    return "unknown"
+
+
 def _authentication_stage(client: Botslab360Client, error: Exception) -> str:
     """Locate a continuation failure without inspecting credentials or error text."""
 
@@ -122,12 +153,14 @@ def _log_authentication_result(
         ]
     _LOGGER.debug(
         "Authentication: backend=%s stage=%s result=%s phase=%s "
-        "errno=%s response_errno=%s error_code=%s http_status=%s",
+        "errno=%s response_errno=%s error_code=%s http_status=%s "
+        "transport_error_type=%s",
         backend_name,
         stage,
         result,
         phase,
         *details,
+        _transport_error_type(error) if phase == "transport" else None,
     )
 
 
