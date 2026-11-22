@@ -225,6 +225,11 @@ ruff format --check .
 python -m pytest -q -p no:cacheprovider
 ```
 
+Special thanks to [DrLabel](https://github.com/DrLabel) for contributing the
+occupancy-grid map camera through
+[PR #6](https://github.com/placix/home-assistant-botslab360/pull/6) and for
+repeated real-device testing on a 360 S6.
+
 Special thanks to [TA2k](https://github.com/TA2k) and the
 [ioBroker.botslab360](https://github.com/TA2k/ioBroker.botslab360) project for
 protocol research and implementation references. This is an independent
