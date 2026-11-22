@@ -29,6 +29,7 @@ PLATFORMS = (
     Platform.BUTTON,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.CAMERA,
 )
 UPDATE_INTERVAL = timedelta(seconds=60)
 

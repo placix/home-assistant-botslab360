@@ -13,6 +13,7 @@ from botslab360 import (
     QihooCredentials,
     RobotStatus,
     SmartSession,
+    UnsupportedOccupancyGridError,
 )
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 
@@ -174,6 +175,12 @@ def make_mock_client() -> MagicMock:
         )
     )
     client.clean_rooms = AsyncMock()
+    # Like a robot whose map has no grid: no camera unless a test opts in.
+    client.get_occupancy_grid = AsyncMock(
+        side_effect=UnsupportedOccupancyGridError(
+            "No occupancy grid", phase="unsupported"
+        )
+    )
     client.get_status = AsyncMock(return_value=make_status())
     client.start_cleaning = AsyncMock()
     client.pause = AsyncMock()
