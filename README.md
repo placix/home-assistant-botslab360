@@ -3,6 +3,7 @@
 [![Validate](https://github.com/placix/home-assistant-botslab360/actions/workflows/validate.yml/badge.svg)](https://github.com/placix/home-assistant-botslab360/actions/workflows/validate.yml)
 [![HACS](https://img.shields.io/badge/HACS-Integration-41BDF5.svg)](https://www.hacs.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![AI Assisted Codex](https://img.shields.io/badge/AI%20Assisted-Codex-blue?logo=openai&logoColor=white)
 
 Botslab 360 is an unofficial Home Assistant custom integration for Botslab / 360
 robot vacuums. It uses the external
@@ -157,3 +158,11 @@ project; TA2k is not one of its maintainers. The integration icon is derived
 from that MIT-licensed project's icon; see [ATTRIBUTION.md](ATTRIBUTION.md).
 
 Version `0.6.4` is licensed under the [MIT License](LICENSE).
+
+## AI-Assisted Development
+
+This project is developed with the assistance of OpenAI Codex. AI tools support
+code development, refactoring, testing, and documentation.
+
+AI-generated contributions are reviewed and validated before being incorporated
+into the project.
