@@ -10,9 +10,10 @@ robot vacuums. It uses the external
 [`botslab360`](https://github.com/placix/python-botslab360) Python package for
 communication with Botslab services and devices.
 
-The integration is under active development. Native 360Robot authentication
-and the current vacuum and status features have been tested with a 360Robot
-S9-P. Other models may behave differently.
+The integration is under active development. Real-device testing includes the
+room-capable 360Robot S9-P and the 360 S6 without room segmentation. The S6
+occupancy-grid camera has also been verified on real hardware. Other models
+may behave differently.
 
 ## Features
 
@@ -106,6 +107,76 @@ per room, but no verified room-profile field or public API currently represents
 that setting. The integration therefore does not reinterpret `SweepArea.mode`
 or expose the robot-wide mop-only switch as a cleaning plan.
 
+### Dashboard example
+
+All exposed entities are standard Home Assistant entities and can be arranged
+freely in Lovelace with native cards. For example, a compact section can combine
+temporary multi-room cleaning jobs with one room's controls:
+
+```yaml
+type: grid
+cards:
+  - type: tile
+    entity: switch.my_robot_job_kitchen
+    name: Kitchen
+    tap_action:
+      action: toggle
+  - type: tile
+    entity: switch.my_robot_job_bathroom
+    name: Bathroom
+    tap_action:
+      action: toggle
+  - type: button
+    entity: button.my_robot_start_selected_rooms
+    name: Start cleaning
+    show_state: false
+    tap_action:
+      action: perform-action
+      perform_action: button.press
+      target:
+        entity_id: button.my_robot_start_selected_rooms
+  - type: button
+    entity: button.my_robot_clear_room_selection
+    name: Clear selection
+    show_state: false
+    tap_action:
+      action: perform-action
+      perform_action: button.press
+      target:
+        entity_id: button.my_robot_clear_room_selection
+  - type: button
+    entity: button.my_robot_kitchen_clean
+    name: Kitchen - Clean now
+    show_state: false
+    tap_action:
+      action: perform-action
+      perform_action: button.press
+      target:
+        entity_id: button.my_robot_kitchen_clean
+  - type: tile
+    entity: select.my_robot_kitchen_suction
+    name: Suction
+    features:
+      - type: select-options
+  - type: tile
+    entity: select.my_robot_kitchen_passes
+    name: Pass count
+    features:
+      - type: select-options
+  - type: tile
+    entity: select.my_robot_kitchen_water
+    name: Water level
+    features:
+      - type: select-options
+```
+
+**Replace every example entity ID with the actual ID from your installation.**
+These IDs are illustrative, not guaranteed generated names. Omit unsupported
+entities, such as water-level controls on models that do not expose them.
+See the [complete Sections dashboard example](docs/dashboard-example.md) for
+robot status and four generic rooms. Room buttons clean their room immediately;
+job-selection switches are only needed for the central Start cleaning button.
+
 ## Authentication and security
 
 Email addresses, passwords, captcha codes, and legacy Q/T session credentials
@@ -123,7 +194,7 @@ successful authentication.
 
 All device and protocol communication is delegated to the separately released
 [`python-botslab360`](https://github.com/placix/python-botslab360) library. The
-integration currently pins `botslab360==0.7.1` and exposes the library through
+integration currently pins `botslab360==0.7.5` and exposes the library through
 Home Assistant-native entities, actions, config flows, and diagnostics.
 
 The vendor `SweepArea.mode` field is deliberately not exposed as a cleaning
@@ -132,8 +203,10 @@ not a verified room sweep/mop selector.
 
 ## Known limitations
 
-- Only the 360Robot S9-P has been verified with the current authentication,
-  status, room, and control features.
+- The 360Robot S9-P room-capable path has been verified. On the 360 S6,
+  zero-room setup, start/pause/return-to-dock controls, and the occupancy-grid
+  camera have been verified; room cleaning is unavailable in this no-room
+  configuration.
 - Per-room cleaning-plan mode is not exposed until its vendor representation is
   verified.
 - Robots whose map provides an occupancy grid (for example the 360 S6) get a
@@ -158,7 +231,7 @@ protocol research and implementation references. This is an independent
 project; TA2k is not one of its maintainers. The integration icon is derived
 from that MIT-licensed project's icon; see [ATTRIBUTION.md](ATTRIBUTION.md).
 
-Version `0.6.4` is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE).
 
 ## AI-Assisted Development
 
