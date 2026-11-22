@@ -95,6 +95,8 @@ Currently active platforms are:
 - button
 - select
 - switch
+- camera (only the occupancy-grid map camera for robots without room
+  segmentation; see `docs/grid-map.md`)
 
 Room-cleaning buttons are native Home Assistant button entities.
 
@@ -227,7 +229,8 @@ Keep the existing implementation in the repository, including:
 
 Unless a task explicitly concerns maps:
 
-- do not enable the camera/map platform
+- do not expose the polygon room-map camera (the camera platform only creates
+  occupancy-grid cameras for robots without room segmentation)
 - do not expose new map entities
 - do not extend map functionality
 - do not refactor the map subsystem

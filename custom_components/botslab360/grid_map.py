@@ -129,7 +129,11 @@ def decode_grid_map(info: dict[str, Any]) -> GridMap:
             raise ValueError("invalid origin")
         raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4))
         lz4_len = info.get("lz4_len")
-        if isinstance(lz4_len, int) and not isinstance(lz4_len, bool) and lz4_len != len(raw):
+        if (
+            isinstance(lz4_len, int)
+            and not isinstance(lz4_len, bool)
+            and lz4_len != len(raw)
+        ):
             raise ValueError(f"lz4_len {lz4_len} != {len(raw)}")
         grid = _lz4_block(raw, width * height)
 
@@ -154,7 +158,9 @@ def decode_grid_map(info: dict[str, Any]) -> GridMap:
     except ApiError:
         raise
     except (KeyError, TypeError, ValueError, binascii.Error, OSError) as err:
-        raise ApiError(f"MapInfo has no usable grid map: {err!r}", phase="protocol") from err
+        raise ApiError(
+            f"MapInfo has no usable grid map: {err!r}", phase="protocol"
+        ) from err
 
     return GridMap(
         map_id=map_id,
@@ -252,7 +258,9 @@ async def fetch_map_info(client: Any, device_id: str, timeout: float = 30.0) -> 
                 try:
                     return await waiter
                 except asyncio.TimeoutError as err:
-                    raise ApiError("Timed out waiting for map", phase="timeout") from err
+                    raise ApiError(
+                        "Timed out waiting for map", phase="timeout"
+                    ) from err
             finally:
                 if not waiter.done():
                     waiter.cancel()

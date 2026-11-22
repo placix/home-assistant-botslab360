@@ -207,6 +207,8 @@ class Botslab360GridMapCamera(Botslab360Entity, Camera):
         status = self.robot_status
         robot = None
         if status is not None:
+            # (0, 0) is what the robot reports before it has a position; the dock
+            # can legitimately sit at the origin, the live robot marker cannot.
             x, y = status.position_x, status.position_y
             if (
                 isinstance(x, int)

@@ -116,7 +116,7 @@ def test_decode_grid_map_geometry() -> None:
         {"resolution": 0},
         {"resolution": float("nan")},
         {"lz4_len": 1},
-        {"map": "!!!"},
+        {"map": "Q", "lz4_len": None},  # invalid base64
     ],
 )
 def test_decode_grid_map_rejects_bad_fields(change: dict) -> None:
@@ -188,18 +188,22 @@ async def test_grid_camera_refreshes_when_stale(hass, mock_client) -> None:
     fetch = AsyncMock(return_value=_map_info())
     with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
         assert await camera.async_camera_image() is not None
-        camera._grid.fetched = time.monotonic() - 10_000  # noqa: SLF001
+        old = time.monotonic() - 10_000
+        camera._grid.fetched = old  # noqa: SLF001
         assert await camera.async_camera_image() is not None
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert fetch.await_count == 2
+    assert camera._grid.fetched > old  # noqa: SLF001
 
 
 async def test_grid_camera_failure_backs_off(hass, mock_client) -> None:
     """A failed fetch returns no image and is not retried immediately."""
 
     camera = _camera(hass, mock_client)
-    fetch = AsyncMock(side_effect=ApiError("Timed out waiting for map", phase="timeout"))
+    fetch = AsyncMock(
+        side_effect=ApiError("Timed out waiting for map", phase="timeout")
+    )
     with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
         assert await camera.async_camera_image() is None
         assert await camera.async_camera_image() is None

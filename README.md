@@ -135,9 +135,11 @@ not a verified room sweep/mop selector.
   status, room, and control features.
 - Per-room cleaning-plan mode is not exposed until its vendor representation is
   verified.
-- The experimental map renderer remains in the codebase, but the camera
-  platform and map camera entities are disabled. Xiaomi Vacuum Map Card support
-  and additional map features are deferred.
+- Robots without room segmentation (for example the 360 S6) get a **Map**
+  camera that shows the occupancy grid with the dock and the robot position
+  (see `docs/grid-map.md`). The polygon room-map camera for robots with rooms
+  remains disabled. Xiaomi Vacuum Map Card support and additional map features
+  are deferred.
 - Network discovery never guesses a robot association when MAC verification is
   unavailable or ambiguous.
 

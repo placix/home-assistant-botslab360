@@ -59,13 +59,18 @@ in mm and in the same frame as the dock.
 - Only robots whose `get_rooms()` returned `[]` at setup get a camera
   (`runtime_data.unsegmented_devices`). Robots with rooms get no camera entity,
   so the deferred polygon camera stays deferred.
+- Known limitation: in 0.7.4 `get_rooms()` also returns `[]` for a room-capable
+  robot whose `smartArea` is still empty (no rooms created yet). That robot would
+  get a grid camera too, until it has rooms and the entry reloads. A public
+  library flag (e.g. `supports_rooms`/`segmented`) would make this exact.
 - `async_camera_image()` returns the cached PNG immediately and refreshes the grid
   in a background task tied to the config entry. The grid is refreshed after
   60 s while the robot is active and after 15 min when it is idle. After a
   failure it backs off for 5 min. The first request waits up to 8 s, because
   HA's camera proxy allows about 10 s.
 - Error handling: `AuthenticationError` starts reauthentication. `ApiError`,
-  timeouts and decode errors are logged and keep the last good image.
+  timeouts and decode errors are logged and keep the last good grid. A rendering
+  error returns no image for that request.
 - **Limits:** the LZ4 decoder is bounds-checked and never grows past
   `width × height`. The grid is limited to 1 M cells.
 
