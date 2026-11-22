@@ -38,7 +38,7 @@ discovery (`get_rooms()`) is not used for this.
 | Success | A camera is added for the robot |
 | `UnsupportedOccupancyGridError` before any success | No grid camera for this config-entry lifetime |
 | `UnsupportedOccupancyGridError` after a success | The camera keeps its last image; treated as a temporary failure |
-| `AuthenticationError` | Reauthentication starts; no retry loop (reauthentication reloads the entry) |
+| `AuthenticationError` | Reauthentication starts; no further grid requests for that robot (not even forced camera refreshes) until reauthentication reloads the entry |
 | Temporary `ApiError`, timeout, transport or unexpected error | Retry with backoff (5 min, doubling up to 1 h); never marked unsupported |
 
 Discovery runs in a background task bound to the config entry, so optional map
@@ -55,7 +55,9 @@ that finishes during unloading adds no entity.
   - `col = width − (x/1000 − x_min)/resolution`
   - `row = (y/1000 − y_min)/resolution`
   - both multiplied by an integer scale, so the longest side is about 1024 px
-    (at most 6×).
+    (at most 6×). A grid longer than 1024 cells is scaled down instead, so the
+    longest side is exactly 1024 px; the markers use the per-axis factors of
+    the resized image.
 - **Markers:** the dock is green and the robot red. A status position of
   `(0, 0)` means "no position yet" and is not drawn. The base image is cached;
   only the markers are redrawn when the robot moves, and the PNG is cached per

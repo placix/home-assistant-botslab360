@@ -58,7 +58,7 @@ class GridRender:
     """A fetched grid with its scaled, cached base image."""
 
     grid: OccupancyGrid
-    scale: int
+    scale: float  # pixels per cell; below 1 when a large grid is downscaled
     base: Image.Image
     fetched: float = field(default_factory=time.monotonic)
 
@@ -76,10 +76,20 @@ def build_grid_render(grid: OccupancyGrid) -> GridRender:
         image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     if FLIP_Y:
         image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-    scale = max(1, min(MAX_SCALE, MAX_SIDE_PX // max(grid.width, grid.height)))
-    base = image.resize(
-        (grid.width * scale, grid.height * scale), Image.Resampling.NEAREST
-    )
+    longest = max(grid.width, grid.height)
+    scale: float
+    size: tuple[int, int]
+    if longest <= MAX_SIDE_PX:
+        factor = min(MAX_SCALE, MAX_SIDE_PX // longest)  # whole pixels per cell
+        scale = factor
+        size = (grid.width * factor, grid.height * factor)
+    else:
+        scale = MAX_SIDE_PX / longest
+        size = (
+            max(1, min(MAX_SIDE_PX, round(grid.width * scale))),
+            max(1, min(MAX_SIDE_PX, round(grid.height * scale))),
+        )
+    base = image.resize(size, Image.Resampling.NEAREST)
     return GridRender(grid=grid, scale=scale, base=base)
 
 
@@ -91,7 +101,11 @@ def _to_pixel(render: GridRender, x_mm: float, y_mm: float) -> tuple[float, floa
         col = grid.width - col
     if FLIP_Y:
         row = grid.height - row
-    return col * render.scale, row * render.scale
+    # Per-axis factors so rounding of a downscaled image is followed exactly.
+    return (
+        col * render.base.width / grid.width,
+        row * render.base.height / grid.height,
+    )
 
 
 def render_grid_png(render: GridRender, robot: tuple[int, int] | None) -> bytes:
@@ -125,7 +139,9 @@ class Botslab360GridMaps:
     Discovery runs in the background so optional map support never blocks the
     vacuum and sensor setup. A device gets a camera after its first successful
     fetch; ``UnsupportedOccupancyGridError`` disables the grid for that device
-    for the lifetime of the config entry. Temporary failures back off and retry.
+    for the lifetime of the config entry. An authentication failure stops all
+    grid requests for that device until the entry is reloaded (after reauth).
+    Temporary failures back off and retry.
     At most one fetch runs per device, and unloading cancels fetches and timers.
     """
 
@@ -148,6 +164,7 @@ class Botslab360GridMaps:
         self._retry_at: dict[str, float] = {}
         self._listeners: dict[str, Callable[[], None]] = {}
         self.unsupported: set[str] = set()
+        self.auth_failed: set[str] = set()
         self._unloaded = False
         entry.async_on_unload(self._async_unload)
 
@@ -191,7 +208,11 @@ class Botslab360GridMaps:
     ) -> asyncio.Task[None] | None:
         """Start a fetch unless one is running, unsupported or backing off."""
 
-        if self._unloaded or device_id in self.unsupported:
+        if (
+            self._unloaded
+            or device_id in self.unsupported
+            or device_id in self.auth_failed
+        ):
             return None
         if (running := self.task(device_id)) is not None:
             return running
@@ -224,6 +245,7 @@ class Botslab360GridMaps:
         except AuthenticationError:
             # Reauthentication reloads the entry; do not keep retrying here.
             _LOGGER.warning("Authentication failed while fetching the grid map")
+            self.auth_failed.add(device_id)
             self._entry.async_start_reauth(self._hass)
             return
         except (ApiError, TimeoutError, OSError, ValueError) as err:

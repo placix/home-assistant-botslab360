@@ -32,6 +32,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.botslab360.const import DOMAIN
 from custom_components.botslab360.grid_map import (
     GRID_RETRY_AFTER_FAILURE,
+    MAX_SIDE_PX,
     _to_pixel,
     build_grid_render,
     render_grid_png,
@@ -42,6 +43,8 @@ from .conftest import TEST_CREDENTIALS, TEST_DEVICE, TEST_ROOMS, make_status
 WIDTH, HEIGHT = 8, 6
 ROBOT = (230, 60, 60)
 DOCK = (60, 200, 90)
+WALL = (240, 240, 240)
+FLOOR = (120, 170, 220)
 UNIQUE_ID = f"{TEST_DEVICE.id}_occupancy_grid_map"
 
 
@@ -116,6 +119,60 @@ def test_pixel_mapping_mirrors_x_and_keeps_row_zero_at_y_min() -> None:
 
     assert _to_pixel(render, -200, -100) == (WIDTH * scale, 0)
     assert _to_pixel(render, 200, 200) == pytest.approx((0, HEIGHT * scale))
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "size"),
+    [
+        (2048, 1, (MAX_SIDE_PX, 1)),
+        (1, 2048, (1, MAX_SIDE_PX)),
+        (3000, 1500, (MAX_SIDE_PX, 512)),
+        (1500, 3000, (512, MAX_SIDE_PX)),
+        (MAX_SIDE_PX, 1, (MAX_SIDE_PX, 1)),
+    ],
+)
+def test_large_grid_is_downscaled_to_max_side(width, height, size) -> None:
+    """A grid longer than MAX_SIDE_PX cells is scaled below one pixel per cell."""
+
+    resolution = 0.05
+    # A wall block around one cell, large enough to survive downscaling.
+    col, row = width // 3, height // 3
+    cells = bytearray([GRID_CELL_FREE]) * (width * height)
+    for r in range(max(0, row - 4), min(height, row + 5)):
+        for c in range(max(0, col - 4), min(width, col + 5)):
+            cells[r * width + c] = GRID_CELL_OCCUPIED
+    grid = OccupancyGrid(
+        map_id=1,
+        width=width,
+        height=height,
+        resolution=resolution,
+        x_min=-1.0,
+        y_min=-2.0,
+        cells=bytes(cells),
+        dock_position=(0, 0),
+    )
+    render = build_grid_render(grid)
+
+    assert render.base.size == size
+    with Image.open(BytesIO(render_grid_png(render, (500, 500)))) as image:
+        assert image.size == size
+
+    # Same S6 orientation: the grid corners map to the image corners.
+    x_min, y_min = grid.x_min * 1000, grid.y_min * 1000
+    x_max = x_min + width * resolution * 1000
+    y_max = y_min + height * resolution * 1000
+    assert _to_pixel(render, x_min, y_min) == pytest.approx((size[0], 0))
+    assert _to_pixel(render, x_max, y_max) == pytest.approx((0, size[1]))
+    # The centre of the wall cell lands on a wall pixel of the resized image.
+    px, py = _to_pixel(
+        render,
+        x_min + (col + 0.5) * resolution * 1000,
+        y_min + (row + 0.5) * resolution * 1000,
+    )
+    assert render.base.getpixel((int(px), int(py))) == WALL
+    # And the opposite corner area stays floor.
+    fx, fy = _to_pixel(render, x_max - 0.5 * resolution * 1000, y_max - 1)
+    assert render.base.getpixel((int(fx), min(int(fy), size[1] - 1))) == FLOOR
 
 
 async def test_camera_created_only_for_robots_with_a_grid(hass, mock_client) -> None:
@@ -249,6 +306,38 @@ async def test_authentication_error_starts_reauth(hass, mock_client) -> None:
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=3))
     await hass.async_block_till_done(wait_background_tasks=True)
     mock_client.get_occupancy_grid.assert_awaited_once()
+
+
+async def test_authentication_error_after_success_stops_grid_requests(
+    hass, mock_client
+) -> None:
+    """After an auth failure the existing camera requests no more grids."""
+
+    mock_client.get_occupancy_grid.side_effect = [
+        _grid(),
+        AuthenticationError("expired"),
+    ]
+    entry = await _setup(hass, mock_client)
+    camera = hass.data["camera"].get_entity(_camera_id(hass))
+    grid_maps = camera._grid_maps
+    grid_maps.render(TEST_DEVICE.id).fetched = time.monotonic() - 10_000
+
+    with patch.object(entry, "async_start_reauth") as start_reauth:
+        assert await camera.async_camera_image() is not None
+        await hass.async_block_till_done(wait_background_tasks=True)
+        start_reauth.assert_called_once_with(hass)
+        assert mock_client.get_occupancy_grid.await_count == 2
+
+        # The stale camera keeps its last image but asks for nothing more,
+        # not even forced refreshes, until reauthentication reloads the entry.
+        assert await camera.async_camera_image() is not None
+        await camera.async_update()
+        assert grid_maps.async_request_refresh(TEST_DEVICE.id, force=True) is None
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=3))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_client.get_occupancy_grid.await_count == 2
+    start_reauth.assert_called_once()
 
 
 async def test_camera_caches_png_and_refreshes_when_stale(hass, mock_client) -> None:
