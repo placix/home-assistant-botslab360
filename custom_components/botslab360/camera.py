@@ -9,7 +9,8 @@ from contextlib import suppress
 from typing import Any
 
 from homeassistant.components.camera import Camera
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from botslab360 import ApiError, AuthenticationError, Device
@@ -17,12 +18,11 @@ from botslab360 import ApiError, AuthenticationError, Device
 from . import Botslab360ConfigEntry
 from .coordinator import Botslab360Coordinator
 from .entity import Botslab360Entity
-from .grid_map import GridMap, decode_grid_map, fetch_map_info, render_grid_png
+from .grid_map import Botslab360GridMaps, GridRender, render_grid_png
 
-# Grid map refresh: maximum image age before a background refresh (seconds).
+# Maximum grid age before a background refresh (seconds).
 GRID_MAX_AGE_ACTIVE = 60
 GRID_MAX_AGE_IDLE = 900
-GRID_RETRY_AFTER_FAILURE = 300
 GRID_FIRST_WAIT = 8  # HA's camera proxy allows async_camera_image about 10 s
 _ACTIVE_STATES = {"sweep", "mop", "backcharge", "pause"}
 
@@ -34,19 +34,26 @@ async def async_setup_entry(
     entry: Botslab360ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up a grid-map camera for each robot without room segmentation.
+    """Discover occupancy grids in the background and add a camera per grid.
 
-    The polygon room-map camera (Botslab360MapCamera) stays deferred: robots with
-    rooms get no camera entity, exactly as before this platform was enabled.
+    A robot gets a camera after its first successful ``get_occupancy_grid()``.
+    The polygon room-map camera (Botslab360MapCamera) stays deferred.
     """
 
     coordinator = entry.runtime_data.coordinator
-    unsegmented = entry.runtime_data.unsegmented_devices
-    async_add_entities(
-        Botslab360GridMapCamera(entry, coordinator, device)
-        for device in coordinator.devices.values()
-        if device.id in unsegmented
-    )
+
+    @callback
+    def add_camera(device: Device) -> None:
+        # A fetch can finish while the entry unloads; never add entities then.
+        if entry.state not in (
+            ConfigEntryState.SETUP_IN_PROGRESS,
+            ConfigEntryState.LOADED,
+        ):
+            return
+        async_add_entities([Botslab360GridMapCamera(coordinator, device, grid_maps)])
+
+    grid_maps = Botslab360GridMaps(hass, entry, add_camera)
+    grid_maps.async_start(list(coordinator.devices.values()))
 
 
 class Botslab360MapCamera(Botslab360Entity, Camera):
@@ -115,60 +122,40 @@ class Botslab360MapCamera(Botslab360Entity, Camera):
 
 
 class Botslab360GridMapCamera(Botslab360Entity, Camera):
-    """Occupancy-grid map with dock and robot position, for unsegmented robots."""
+    """Occupancy-grid map with the dock and the live robot position."""
 
-    _attr_content_type = "image/png"
     _attr_should_poll = False
     _attr_translation_key = "map"
 
     def __init__(
         self,
-        entry: Botslab360ConfigEntry,
         coordinator: Botslab360Coordinator,
         device: Device,
+        grid_maps: Botslab360GridMaps,
     ) -> None:
         """Initialize a grid-map camera."""
 
         Botslab360Entity.__init__(self, coordinator, device)
         Camera.__init__(self)
-        self._config_entry = entry
-        self._attr_unique_id = f"{device.id}_map"
-        self._grid: GridMap | None = None
-        self._grid_task: asyncio.Task[None] | None = None
-        self._grid_retry_at = 0.0
-        self._grid_png: tuple[tuple[float, Any], bytes] | None = None
+        # Camera.__init__ resets content_type to JPEG; the images are PNG.
+        self.content_type = "image/png"
+        self._grid_maps = grid_maps
+        self._attr_unique_id = f"{device.id}_occupancy_grid_map"
+        self._png: tuple[tuple[float, tuple[int, int] | None], bytes] | None = None
 
-    async def _async_fetch_grid(self) -> None:
-        try:
-            info = await fetch_map_info(self.coordinator.client, self.device.id)
-            grid = await self.hass.async_add_executor_job(decode_grid_map, info)
-        except AuthenticationError:
-            self._grid_retry_at = time.monotonic() + GRID_RETRY_AFTER_FAILURE
-            self._config_entry.async_start_reauth(self.hass)
-            _LOGGER.warning("Authentication failed while fetching the grid map")
-        except (ApiError, TimeoutError, OSError) as err:
-            self._grid_retry_at = time.monotonic() + GRID_RETRY_AFTER_FAILURE
-            _LOGGER.warning("Unable to fetch the grid map: %s", err)
-        except Exception:  # noqa: BLE001 - never let a background fetch loop
-            self._grid_retry_at = time.monotonic() + GRID_RETRY_AFTER_FAILURE
-            _LOGGER.exception("Unexpected error while fetching the grid map")
-        else:
-            self._grid = grid
-            self._grid_png = None
-            if self.entity_id is not None:
-                self.async_write_ha_state()
+    async def async_added_to_hass(self) -> None:
+        """Write the state again after each successful grid refresh."""
 
-    def _start_grid_task(self) -> asyncio.Task[None]:
-        # Tied to the config entry so unloading cancels a running fetch.
-        return self._config_entry.async_create_background_task(
-            self.hass,
-            self._async_fetch_grid(),
-            f"botslab360 grid map {self.device.id}",
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._grid_maps.async_add_listener(self.device.id, self._handle_grid)
         )
 
-    def _grid_is_stale(self) -> bool:
-        if self._grid is None:
-            return True
+    @callback
+    def _handle_grid(self) -> None:
+        self.async_write_ha_state()
+
+    def _is_stale(self, render: GridRender) -> bool:
         status = self.robot_status
         state = (
             status.state.casefold()
@@ -176,55 +163,55 @@ class Botslab360GridMapCamera(Botslab360Entity, Camera):
             else ""
         )
         max_age = GRID_MAX_AGE_ACTIVE if state in _ACTIVE_STATES else GRID_MAX_AGE_IDLE
-        return time.monotonic() - self._grid.fetched > max_age
+        return time.monotonic() - render.fetched > max_age
+
+    def _robot_position(self) -> tuple[int, int] | None:
+        status = self.robot_status
+        if status is None:
+            return None
+        # (0, 0) is what the robot reports before it has a position; the dock
+        # can legitimately sit at the origin, the live robot marker cannot.
+        x, y = status.position_x, status.position_y
+        if (
+            isinstance(x, int)
+            and isinstance(y, int)
+            and not isinstance(x, bool)
+            and not isinstance(y, bool)
+            and (x, y) != (0, 0)
+        ):
+            return (x, y)
+        return None
 
     async def async_update(self) -> None:
         """Refresh the grid only when explicitly requested by Home Assistant."""
 
-        self._grid_retry_at = 0.0
-        if self._grid_task is None or self._grid_task.done():
-            self._grid_task = self._start_grid_task()
-        await asyncio.shield(self._grid_task)
+        task = self._grid_maps.async_request_refresh(self.device.id, force=True)
+        if task is not None:
+            await asyncio.shield(task)
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return the cached grid PNG at once; refresh it in the background."""
 
-        if (
-            self._grid_is_stale()
-            and (self._grid_task is None or self._grid_task.done())
-            and time.monotonic() >= self._grid_retry_at
-        ):
-            self._grid_task = self._start_grid_task()
-        if self._grid is None and self._grid_task is not None:
-            with suppress(TimeoutError, asyncio.TimeoutError):
-                await asyncio.wait_for(asyncio.shield(self._grid_task), GRID_FIRST_WAIT)
-        grid = self._grid
-        if grid is None:
-            return None
+        render = self._grid_maps.render(self.device.id)
+        if render is None or self._is_stale(render):
+            self._grid_maps.async_request_refresh(self.device.id)
+        if render is None:
+            if (task := self._grid_maps.task(self.device.id)) is not None:
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(task), GRID_FIRST_WAIT)
+            if (render := self._grid_maps.render(self.device.id)) is None:
+                return None
 
-        status = self.robot_status
-        robot = None
-        if status is not None:
-            # (0, 0) is what the robot reports before it has a position; the dock
-            # can legitimately sit at the origin, the live robot marker cannot.
-            x, y = status.position_x, status.position_y
-            if (
-                isinstance(x, int)
-                and isinstance(y, int)
-                and not isinstance(x, bool)
-                and not isinstance(y, bool)
-                and (x, y) != (0, 0)
-            ):
-                robot = (x, y)
-        key = (grid.fetched, robot)
-        if self._grid_png is not None and self._grid_png[0] == key:
-            return self._grid_png[1]
+        robot = self._robot_position()
+        key = (render.fetched, robot)
+        if self._png is not None and self._png[0] == key:
+            return self._png[1]
         try:
-            png = await self.hass.async_add_executor_job(render_grid_png, grid, robot)
+            png = await self.hass.async_add_executor_job(render_grid_png, render, robot)
         except (ValueError, OSError) as err:
             _LOGGER.warning("Unable to render the grid map: %s", err)
             return None
-        self._grid_png = (key, png)
+        self._png = (key, png)
         return png

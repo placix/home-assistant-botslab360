@@ -140,7 +140,7 @@ async def test_camera_authentication_error_starts_reauth(hass, mock_client) -> N
 
 
 async def test_no_camera_entities_for_robots_with_rooms(hass, mock_client) -> None:
-    """Robots with rooms get no camera: the polygon room map stays deferred."""
+    """Without an occupancy grid there is no camera; the polygon map stays deferred."""
 
     second = TEST_DEVICE.__class__(
         id="second-test-device",
@@ -156,7 +156,7 @@ async def test_no_camera_entities_for_robots_with_rooms(hass, mock_client) -> No
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # The camera platform only creates grid-map cameras for unsegmented robots.
+    # The camera platform only creates occupancy-grid cameras.
     assert Platform.CAMERA in PLATFORMS
     assert Platform.BINARY_SENSOR in PLATFORMS
     assert Platform.SWITCH in PLATFORMS

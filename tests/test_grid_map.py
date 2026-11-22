@@ -1,259 +1,385 @@
-"""Tests for the occupancy-grid map of robots without room segmentation."""
+"""Tests for the occupancy-grid map camera."""
 
 from __future__ import annotations
 
-import base64
+import asyncio
 import time
 from dataclasses import replace
+from datetime import timedelta
 from io import BytesIO
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from botslab360 import ApiError, AuthenticationError
+from botslab360 import (
+    GRID_CELL_FREE,
+    GRID_CELL_OCCUPIED,
+    GRID_CELL_UNKNOWN,
+    ApiError,
+    AuthenticationError,
+    OccupancyGrid,
+    UnsupportedOccupancyGridError,
+)
 from homeassistant.components.camera import async_get_image
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from PIL import Image
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
-from custom_components.botslab360 import Botslab360RuntimeData
-from custom_components.botslab360.camera import Botslab360GridMapCamera
 from custom_components.botslab360.const import DOMAIN
-from custom_components.botslab360.coordinator import Botslab360Coordinator
 from custom_components.botslab360.grid_map import (
-    _lz4_block,
-    decode_grid_map,
+    GRID_RETRY_AFTER_FAILURE,
+    _to_pixel,
+    build_grid_render,
     render_grid_png,
 )
-from custom_components.botslab360.map import Botslab360MapCache
 
 from .conftest import TEST_CREDENTIALS, TEST_DEVICE, TEST_ROOMS, make_status
 
 WIDTH, HEIGHT = 8, 6
+ROBOT = (230, 60, 60)
+DOCK = (60, 200, 90)
+UNIQUE_ID = f"{TEST_DEVICE.id}_occupancy_grid_map"
 
 
-def _literal_block(data: bytes) -> bytes:
-    """Encode bytes as a valid literal-only LZ4 block."""
-
-    length = len(data)
-    if length < 15:
-        return bytes([length << 4]) + data
-    rest = length - 15
-    ext = b"\xff" * (rest // 255) + bytes([rest % 255])
-    return bytes([0xF0]) + ext + data
-
-
-def _grid() -> bytes:
+def _cells() -> bytes:
     """Unknown border, floor inside, one wall cell."""
 
-    cells = bytearray([127] * (WIDTH * HEIGHT))
+    cells = bytearray([GRID_CELL_UNKNOWN] * (WIDTH * HEIGHT))
     for row in range(1, HEIGHT - 1):
         for col in range(1, WIDTH - 1):
-            cells[row * WIDTH + col] = 255
-    cells[2 * WIDTH + 3] = 0
+            cells[row * WIDTH + col] = GRID_CELL_FREE
+    cells[4 * WIDTH + 1] = GRID_CELL_OCCUPIED  # away from the dock marker
     return bytes(cells)
 
 
-def _map_info(grid: bytes | None = None) -> dict:
-    block = _literal_block(_grid() if grid is None else grid)
-    # The robot sends base64 with spaces in place of "+".
-    encoded = base64.b64encode(block).decode().replace("+", " ")
-    return {
-        "mapId": 1700000000,
-        "area": [],
-        "width": WIDTH,
-        "height": HEIGHT,
-        "resolution": 0.05,
-        "x_min": -0.2,
-        "y_min": -0.1,
-        "lz4_len": len(block),
-        "map": encoded,
-        "chargeHandlePos": [0, 0],
-    }
+def _grid(**changes) -> OccupancyGrid:
+    grid = OccupancyGrid(
+        map_id=1700000000,
+        width=WIDTH,
+        height=HEIGHT,
+        resolution=0.05,
+        x_min=-0.2,
+        y_min=-0.1,
+        cells=_cells(),
+        dock_position=(0, 0),
+    )
+    return replace(grid, **changes)
 
 
-def test_lz4_literals_and_match() -> None:
-    """A literal run followed by an overlapping match expands correctly."""
-
-    # 1 literal (0x7f) + match offset 1, length 4 + 7 = 11 -> 12 bytes of 0x7f.
-    block = bytes([(1 << 4) | 7, 0x7F, 0x01, 0x00])
-    assert _lz4_block(block, 12) == b"\x7f" * 12
-    assert _lz4_block(_literal_block(b"x" * 300), 300) == b"x" * 300
+def _colours(png: bytes) -> set[tuple[int, int, int]]:
+    with Image.open(BytesIO(png)) as image:
+        return {colour for _, colour in image.convert("RGB").getcolors(1_000_000)}
 
 
-@pytest.mark.parametrize(
-    ("block", "size"),
-    [
-        (bytes([(1 << 4) | 7, 0x7F, 0x00, 0x00]), 12),  # offset 0
-        (bytes([(1 << 4) | 7, 0x7F, 0x05, 0x00]), 12),  # offset beyond output
-        (bytes([(1 << 4) | 7, 0x7F, 0x01, 0x00]), 8),  # grows past out_len
-        (bytes([0x50, 1, 2]), 5),  # truncated literals
-        (bytes([0x20, 1, 2]), 5),  # size mismatch
-    ],
-)
-def test_lz4_rejects_corrupt_blocks(block: bytes, size: int) -> None:
-    """Corrupt blocks raise ApiError instead of producing a wrong grid."""
-
-    with pytest.raises(ApiError):
-        _lz4_block(block, size)
+async def _setup(hass, mock_client) -> MockConfigEntry:
+    entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    return entry
 
 
-def test_decode_grid_map_geometry() -> None:
-    """MapInfo fields become a scaled image with the dock position."""
-
-    grid = decode_grid_map(_map_info())
-
-    assert (grid.width, grid.height) == (WIDTH, HEIGHT)
-    assert grid.map_id == 1700000000
-    assert grid.dock == (0, 0)
-    assert grid.base.size == (WIDTH * grid.scale, HEIGHT * grid.scale)
+def _camera_id(hass, unique_id: str = UNIQUE_ID) -> str | None:
+    return er.async_get(hass).async_get_entity_id("camera", DOMAIN, unique_id)
 
 
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"width": 0},
-        {"height": 5000, "width": 5000},
-        {"resolution": 0},
-        {"resolution": float("nan")},
-        {"lz4_len": 1},
-        {"map": "Q", "lz4_len": None},  # invalid base64
-    ],
-)
-def test_decode_grid_map_rejects_bad_fields(change: dict) -> None:
-    """Invalid MapInfo fields raise ApiError (phase protocol)."""
+def test_render_draws_grid_dock_and_robot() -> None:
+    """The PNG has the scaled size, the cell colours and both markers."""
 
-    with pytest.raises(ApiError):
-        decode_grid_map(_map_info() | change)
-
-
-def test_decode_grid_map_requires_grid_fields() -> None:
-    """A MapInfo without the grid is not decoded."""
-
-    info = _map_info()
-    del info["map"]
-    with pytest.raises(ApiError):
-        decode_grid_map(info)
-
-
-def test_render_draws_robot_and_dock() -> None:
-    """The PNG has the base size and coloured robot/dock markers."""
-
-    grid = decode_grid_map(_map_info())
-    png = render_grid_png(grid, (100, 100))
+    render = build_grid_render(_grid())
+    png = render_grid_png(render, (100, 100))
 
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     with Image.open(BytesIO(png)) as image:
-        assert image.size == grid.base.size
-        colours = {colour for _, colour in image.convert("RGB").getcolors(100_000)}
-    assert (230, 60, 60) in colours  # robot
-    assert (60, 200, 90) in colours  # dock
+        assert image.size == (WIDTH * render.scale, HEIGHT * render.scale)
+    colours = _colours(png)
+    assert {ROBOT, DOCK, (240, 240, 240), (120, 170, 220), (40, 44, 52)} <= colours
 
 
-def _camera(hass, mock_client) -> Botslab360GridMapCamera:
-    entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
-    coordinator = Botslab360Coordinator(hass, entry, mock_client)
-    coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
-    coordinator.data = {TEST_DEVICE.id: make_status()}
-    entry.runtime_data = Botslab360RuntimeData(
-        mock_client,
-        coordinator,
-        Botslab360MapCache(hass, mock_client),
-        unsegmented_devices=frozenset({TEST_DEVICE.id}),
-    )
-    entry.add_to_hass(hass)
-    camera = Botslab360GridMapCamera(entry, coordinator, TEST_DEVICE)
-    camera.hass = hass
-    return camera
+def test_render_without_dock_or_robot() -> None:
+    """A grid without a dock position renders without markers."""
+
+    png = render_grid_png(build_grid_render(_grid(dock_position=None)), None)
+
+    assert not {ROBOT, DOCK} & _colours(png)
 
 
-async def test_grid_camera_fetches_once_and_caches(hass, mock_client) -> None:
-    """First image waits for the fetch; later images reuse the cached PNG."""
+def test_pixel_mapping_mirrors_x_and_keeps_row_zero_at_y_min() -> None:
+    """The S6-verified orientation: X mirrored, row 0 at y_min."""
 
-    camera = _camera(hass, mock_client)
-    fetch = AsyncMock(return_value=_map_info())
-    with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
-        first = await camera.async_camera_image()
-        second = await camera.async_camera_image()
+    render = build_grid_render(_grid())
+    scale = render.scale
 
-    assert first is not None and first.startswith(b"\x89PNG\r\n\x1a\n")
-    assert first is second
-    fetch.assert_awaited_once()
-    assert camera.unique_id == f"{TEST_DEVICE.id}_map"
+    assert _to_pixel(render, -200, -100) == (WIDTH * scale, 0)
+    assert _to_pixel(render, 200, 200) == pytest.approx((0, HEIGHT * scale))
 
 
-async def test_grid_camera_refreshes_when_stale(hass, mock_client) -> None:
-    """An idle map older than the idle max age is refreshed in the background."""
+async def test_camera_created_only_for_robots_with_a_grid(hass, mock_client) -> None:
+    """get_occupancy_grid() decides the camera, independent of rooms."""
 
-    camera = _camera(hass, mock_client)
-    fetch = AsyncMock(return_value=_map_info())
-    with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
-        assert await camera.async_camera_image() is not None
-        old = time.monotonic() - 10_000
-        camera._grid.fetched = old  # noqa: SLF001
-        assert await camera.async_camera_image() is not None
-        await hass.async_block_till_done(wait_background_tasks=True)
-
-    assert fetch.await_count == 2
-    assert camera._grid.fetched > old  # noqa: SLF001
-
-
-async def test_grid_camera_failure_backs_off(hass, mock_client) -> None:
-    """A failed fetch returns no image and is not retried immediately."""
-
-    camera = _camera(hass, mock_client)
-    fetch = AsyncMock(
-        side_effect=ApiError("Timed out waiting for map", phase="timeout")
-    )
-    with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
-        assert await camera.async_camera_image() is None
-        assert await camera.async_camera_image() is None
-
-    fetch.assert_awaited_once()
-
-
-async def test_grid_camera_authentication_error_starts_reauth(
-    hass, mock_client
-) -> None:
-    """Authentication failures start Home Assistant reauthentication."""
-
-    camera = _camera(hass, mock_client)
-    camera._config_entry.async_start_reauth = MagicMock()  # noqa: SLF001
-    fetch = AsyncMock(side_effect=AuthenticationError("expired"))
-    with patch("custom_components.botslab360.camera.fetch_map_info", fetch):
-        assert await camera.async_camera_image() is None
-
-    camera._config_entry.async_start_reauth.assert_called_once_with(hass)  # noqa: SLF001
-
-
-async def test_grid_camera_only_for_unsegmented_robots(hass, mock_client) -> None:
-    """Setup creates a grid camera for the no-room robot and none for the other."""
-
-    room_robot = replace(TEST_DEVICE, id="room-capable-device", name="Room Robot")
-    mock_client.get_devices.return_value = [TEST_DEVICE, room_robot]
+    other = replace(TEST_DEVICE, id="no-grid-device", name="No Grid Robot")
+    mock_client.get_devices.return_value = [TEST_DEVICE, other]
+    # The robot with rooms has a grid; the one without rooms has none.
     mock_client.get_rooms.side_effect = lambda device: (
-        [] if device.id == TEST_DEVICE.id else TEST_ROOMS
+        TEST_ROOMS if device.id == TEST_DEVICE.id else []
     )
     mock_client.get_status.side_effect = lambda device_id: replace(
         make_status(), device_id=device_id
     )
+
+    async def occupancy_grid(device, timeout):
+        if device.id == TEST_DEVICE.id:
+            return _grid()
+        raise UnsupportedOccupancyGridError("no grid", phase="unsupported")
+
+    mock_client.get_occupancy_grid.side_effect = occupancy_grid
+    await _setup(hass, mock_client)
+
+    camera_id = _camera_id(hass)
+    assert camera_id is not None
+    assert _camera_id(hass, f"{other.id}_occupancy_grid_map") is None
+    assert _camera_id(hass, f"{TEST_DEVICE.id}_map") is None
+
+    image = await async_get_image(hass, camera_id)
+    assert image.content_type == "image/png"
+    assert image.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert mock_client.get_occupancy_grid.await_count == 2
+
+
+async def test_unsupported_grid_is_not_retried(hass, mock_client) -> None:
+    """UnsupportedOccupancyGridError disables the grid for the entry lifetime."""
+
+    await _setup(hass, mock_client)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=3))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert _camera_id(hass) is None
+    mock_client.get_occupancy_grid.assert_awaited_once()
+
+
+async def test_slow_grid_discovery_does_not_block_setup(hass, mock_client) -> None:
+    """Setup finishes while discovery waits; unloading cancels the fetch."""
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def hang(device, timeout):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    mock_client.get_occupancy_grid.side_effect = hang
     entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
     entry.add_to_hass(hass)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await asyncio.wait_for(started.wait(), 1)
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get("vacuum.test_robot") is not None
 
-    assert entry.runtime_data.unsegmented_devices == frozenset({TEST_DEVICE.id})
-    registry = er.async_get(hass)
-    camera_id = registry.async_get_entity_id("camera", DOMAIN, f"{TEST_DEVICE.id}_map")
-    assert camera_id is not None
-    assert (
-        registry.async_get_entity_id("camera", DOMAIN, f"{room_robot.id}_map") is None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert cancelled.is_set()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ApiError("Timed out waiting for current map", phase="timeout"),
+        ApiError("Corrupt grid", phase="protocol"),
+        TimeoutError(),
+    ],
+)
+async def test_temporary_failure_retries_with_backoff(hass, mock_client, error) -> None:
+    """Temporary failures add no camera, back off, then retry."""
+
+    mock_client.get_occupancy_grid.side_effect = [error, _grid()]
+    await _setup(hass, mock_client)
+    assert _camera_id(hass) is None
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=GRID_RETRY_AFTER_FAILURE - 10)
     )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_client.get_occupancy_grid.await_count == 1
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=GRID_RETRY_AFTER_FAILURE + 1)
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_client.get_occupancy_grid.await_count == 2
+    assert _camera_id(hass) is not None
+
+
+async def test_unload_cancels_pending_retry(hass, mock_client) -> None:
+    """No discovery runs after the entry is unloaded."""
+
+    mock_client.get_occupancy_grid.side_effect = ApiError("down", phase="transport")
+    entry = await _setup(hass, mock_client)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=3))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    mock_client.get_occupancy_grid.assert_awaited_once()
+
+
+async def test_authentication_error_starts_reauth(hass, mock_client) -> None:
+    """Authentication failures start Home Assistant reauthentication."""
+
+    mock_client.get_occupancy_grid.side_effect = AuthenticationError("expired")
+    entry = MockConfigEntry(domain=DOMAIN, data=TEST_CREDENTIALS)
+    entry.add_to_hass(hass)
+    with patch.object(entry, "async_start_reauth") as start_reauth:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    start_reauth.assert_called_once_with(hass)
+    assert _camera_id(hass) is None
+
+    # No retry loop with bad credentials; reauthentication reloads the entry.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=3))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    mock_client.get_occupancy_grid.assert_awaited_once()
+
+
+async def test_camera_caches_png_and_refreshes_when_stale(hass, mock_client) -> None:
+    """Images reuse the cached PNG; a stale grid refreshes once in the background."""
+
+    mock_client.get_occupancy_grid.side_effect = None
+    mock_client.get_occupancy_grid.return_value = _grid()
+    await _setup(hass, mock_client)
+    camera_id = _camera_id(hass)
+    assert camera_id is not None
+    camera = hass.data["camera"].get_entity(camera_id)
 
     with patch(
-        "custom_components.botslab360.camera.fetch_map_info",
-        AsyncMock(return_value=_map_info()),
-    ):
-        image = await async_get_image(hass, camera_id)
-    assert image.content_type == "image/png"
-    assert image.content.startswith(b"\x89PNG\r\n\x1a\n")
+        "custom_components.botslab360.camera.render_grid_png",
+        wraps=render_grid_png,
+    ) as render:
+        first = await camera.async_camera_image()
+        second = await camera.async_camera_image()
+    assert first is second
+    render.assert_called_once()
+    assert mock_client.get_occupancy_grid.await_count == 1
+
+    grid_maps = camera._grid_maps
+    old = time.monotonic() - 10_000
+    grid_maps.render(TEST_DEVICE.id).fetched = old
+    assert await camera.async_camera_image() is not None
+    assert await camera.async_camera_image() is not None
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_client.get_occupancy_grid.await_count == 2
+    assert grid_maps.render(TEST_DEVICE.id).fetched > old
+
+
+async def test_refresh_failure_keeps_last_image_and_backs_off(
+    hass, mock_client
+) -> None:
+    """After a failed refresh the last image stays and no refresh repeats at once."""
+
+    mock_client.get_occupancy_grid.side_effect = [
+        _grid(),
+        ApiError("down", phase="transport"),
+    ]
+    await _setup(hass, mock_client)
+    camera = hass.data["camera"].get_entity(_camera_id(hass))
+    grid_maps = camera._grid_maps
+    grid_maps.render(TEST_DEVICE.id).fetched = time.monotonic() - 10_000
+
+    assert await camera.async_camera_image() is not None
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert await camera.async_camera_image() is not None
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_client.get_occupancy_grid.await_count == 2
+
+
+async def test_concurrent_refresh_requests_share_one_fetch(hass, mock_client) -> None:
+    """Only one grid fetch runs per robot at a time."""
+
+    release = asyncio.Event()
+    calls = 0
+
+    async def slow_grid(device, timeout):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            await release.wait()
+        return _grid()
+
+    mock_client.get_occupancy_grid.side_effect = slow_grid
+    await _setup(hass, mock_client)
+    camera = hass.data["camera"].get_entity(_camera_id(hass))
+    grid_maps = camera._grid_maps
+
+    first = grid_maps.async_request_refresh(TEST_DEVICE.id, force=True)
+    second = grid_maps.async_request_refresh(TEST_DEVICE.id, force=True)
+    assert first is second
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert calls == 2
+
+
+async def test_robot_marker_follows_status_position(hass, mock_client) -> None:
+    """The robot marker is drawn from the status and hidden at (0, 0)."""
+
+    mock_client.get_occupancy_grid.side_effect = None
+    mock_client.get_occupancy_grid.return_value = _grid(dock_position=None)
+    await _setup(hass, mock_client)
+    camera = hass.data["camera"].get_entity(_camera_id(hass))
+    inside = replace(make_status(), position_x=50, position_y=50)
+    camera.coordinator.data[TEST_DEVICE.id] = inside
+
+    assert ROBOT in _colours(await camera.async_camera_image())
+
+    status = replace(make_status(), position_x=0, position_y=0)
+    camera.coordinator.data[TEST_DEVICE.id] = status
+    assert ROBOT not in _colours(await camera.async_camera_image())
+
+
+async def test_unexpected_error_is_retried(hass, mock_client) -> None:
+    """An unexpected error backs off and retries instead of stopping discovery."""
+
+    mock_client.get_occupancy_grid.side_effect = [RuntimeError("boom"), _grid()]
+    await _setup(hass, mock_client)
+    assert _camera_id(hass) is None
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=GRID_RETRY_AFTER_FAILURE + 1)
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _camera_id(hass) is not None
+
+
+async def test_grid_lost_after_success_keeps_camera_and_retries(
+    hass, mock_client
+) -> None:
+    """A later UnsupportedOccupancyGridError keeps the camera and backs off."""
+
+    mock_client.get_occupancy_grid.side_effect = [
+        _grid(),
+        UnsupportedOccupancyGridError("no grid", phase="unsupported"),
+        _grid(),
+    ]
+    await _setup(hass, mock_client)
+    camera = hass.data["camera"].get_entity(_camera_id(hass))
+    grid_maps = camera._grid_maps
+
+    assert grid_maps.async_request_refresh(TEST_DEVICE.id, force=True) is not None
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert TEST_DEVICE.id not in grid_maps.unsupported
+    assert await camera.async_camera_image() is not None
+
+    assert grid_maps.async_request_refresh(TEST_DEVICE.id, force=True) is not None
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_client.get_occupancy_grid.await_count == 3

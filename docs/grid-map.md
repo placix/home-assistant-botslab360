@@ -1,45 +1,50 @@
-# Occupancy-grid map (robots without room segmentation)
+# Occupancy-grid map camera
 
-Robots such as the **360 S6** have no room segmentation. Their `MapInfo` has an
-integer `mapId` but **no `cleanId`/`smartArea`**, and `area` is `[]`. Since
-0.7.4, `get_rooms()` returns `[]` for them (issue #5).
-
-The same `MapInfo` still contains a full **occupancy grid**: the floor, the walls
-and the dock, i.e. the map the vendor app draws. This document describes that
-format and how this integration turns it into a camera entity.
+Robots whose current map carries an occupancy grid (for example the **360 S6**,
+which has no room segmentation) get a **Map** camera. It shows the floor, the
+walls, the dock and the live robot position, as in the vendor app.
 
 ## Where the data comes from
 
-The request is the same as for room discovery: `infoType 30000` (`COMPOSITE_INFO_TYPE`)
-with `LOAD_DATA`, sent with `_post_robot_request`. The answer arrives on the push
-channel and is resolved with `_map_from_protocol` (including `pushDataUrl`
-downloads). `fetch_map_info()` in `grid_map.py` repeats
-`Botslab360Client._get_room_map_once` up to the point where it returns the raw
-`MapInfo`, without calling `parse_room_map`.
+The grid comes from the public library API (`botslab360==0.7.5`):
 
-## `MapInfo` fields used (real S6)
+```python
+grid = await client.get_occupancy_grid(device, timeout=30.0)
+```
 
-| Field | Example | Meaning |
-|---|---|---|
-| `mapId` | 1529464470 | Integer map id |
-| `width` × `height` | 166 × 92 | Grid size in cells |
-| `resolution` | 0.05 | Metres per cell |
-| `x_min`, `y_min` | -7.68, -3.03 | Origin in metres (cell 0,0) |
-| `map` | base64 text | One **raw LZ4 block** (no frame header). `+` arrives as a space: replace `' '` with `'+'` before decoding |
-| `lz4_len` | 1107 | Size of the compressed block (used as a check) |
-| `chargeHandlePos` | [-6965, 273] | Dock position in **mm** |
-| `area` | `[]` | Empty, because there are no rooms |
+The library owns the MapInfo transport, the Base64 and LZ4 decoding and the
+vendor validation. It returns a typed `OccupancyGrid`:
 
-The decompressed grid is `width × height` bytes, and row 0 is `y_min`:
-
-| Value | Meaning |
+| Field | Meaning |
 |---|---|
-| 127 | Unknown |
-| 255 | Floor |
-| 0 | Wall / obstacle |
+| `map_id` | Integer map id |
+| `width` × `height` | Grid size in cells |
+| `resolution` | Metres per cell (S6) |
+| `x_min`, `y_min` | Origin in metres (S6); row 0 is at `y_min` |
+| `cells` | `width × height` bytes, row-major |
+| `dock_position` | Dock in mm, same frame as the status position, or `None` |
 
-The robot position comes from the normal status (`position_x`, `position_y`),
-in mm and in the same frame as the dock.
+Cell values: `GRID_CELL_FREE` (255), `GRID_CELL_OCCUPIED` (0) and
+`GRID_CELL_UNKNOWN` (127), as observed on the S6. Other values are drawn as
+unknown.
+
+## Capability handling
+
+Whether a robot gets a camera depends only on `get_occupancy_grid()`. Room
+discovery (`get_rooms()`) is not used for this.
+
+| Result | Behaviour |
+|---|---|
+| Success | A camera is added for the robot |
+| `UnsupportedOccupancyGridError` before any success | No grid camera for this config-entry lifetime |
+| `UnsupportedOccupancyGridError` after a success | The camera keeps its last image; treated as a temporary failure |
+| `AuthenticationError` | Reauthentication starts; no retry loop (reauthentication reloads the entry) |
+| Temporary `ApiError`, timeout, transport or unexpected error | Retry with backoff (5 min, doubling up to 1 h); never marked unsupported |
+
+Discovery runs in a background task bound to the config entry, so optional map
+support never delays the vacuum and sensor setup. At most one fetch runs per
+robot. Unloading the entry cancels pending fetches and retry timers, and a fetch
+that finishes during unloading adds no entity.
 
 ## Rendering
 
@@ -51,40 +56,19 @@ in mm and in the same frame as the dock.
   - `row = (y/1000 − y_min)/resolution`
   - both multiplied by an integer scale, so the longest side is about 1024 px
     (at most 6×).
-- **Markers:** the dock is green and the robot red. The base image is cached;
-  only the markers are redrawn when the robot moves.
+- **Markers:** the dock is green and the robot red. A status position of
+  `(0, 0)` means "no position yet" and is not drawn. The base image is cached;
+  only the markers are redrawn when the robot moves, and the PNG is cached per
+  grid and robot position.
 
 ## Camera behaviour
 
-- Only robots whose `get_rooms()` returned `[]` at setup get a camera
-  (`runtime_data.unsegmented_devices`). Robots with rooms get no camera entity,
-  so the deferred polygon camera stays deferred.
-- Known limitation: in 0.7.4 `get_rooms()` also returns `[]` for a room-capable
-  robot whose `smartArea` is still empty (no rooms created yet). That robot would
-  get a grid camera too, until it has rooms and the entry reloads. A public
-  library flag (e.g. `supports_rooms`/`segmented`) would make this exact.
-- `async_camera_image()` returns the cached PNG immediately and refreshes the grid
-  in a background task tied to the config entry. The grid is refreshed after
-  60 s while the robot is active and after 15 min when it is idle. After a
-  failure it backs off for 5 min. The first request waits up to 8 s, because
-  HA's camera proxy allows about 10 s.
-- Error handling: `AuthenticationError` starts reauthentication. `ApiError`,
-  timeouts and decode errors are logged and keep the last good grid. A rendering
-  error returns no image for that request.
-- **Limits:** the LZ4 decoder is bounds-checked and never grows past
-  `width × height`. The grid is limited to 1 M cells.
-
-## Proposed library / integration split
-
-This PR keeps everything in the integration so that it can be tested end to end
-on a real S6. To follow `AGENTS.md`, the protocol part should move to
-`python-botslab360`:
-
-| python-botslab360 (proposed public API) | Home Assistant integration |
-|---|---|
-| `await client.get_map_info(device) -> dict` (raw `MapInfo`, same transport as `get_rooms`) | Camera entity, refresh policy, caching |
-| `decode_occupancy_grid(map_info) -> OccupancyGrid` (width, height, resolution, origin, cells, dock) including the LZ4 block decoder and validation | PNG rendering (Pillow) and orientation |
-
-With that split, `fetch_map_info()` and `_lz4_block()`/`decode_grid_map()`
-in `grid_map.py` become thin calls to the library, and the integration no longer
-uses private client attributes.
+- Unique ID: `{device_id}_occupancy_grid_map`, so it never collides with the
+  retained polygon room-map camera (`{device_id}_map`), which stays deferred.
+- The camera reports `image/png` (`content_type` is set after
+  `Camera.__init__`, which would otherwise reset it to JPEG).
+- `async_camera_image()` returns the cached PNG immediately and refreshes the
+  grid in the background: after 60 s while the robot is active and after 15 min
+  when it is idle. A failed refresh keeps the last image and backs off. When no
+  grid is cached yet, the first request waits up to 8 s, because HA's camera
+  proxy allows about 10 s.
