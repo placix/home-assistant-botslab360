@@ -59,6 +59,9 @@ class Botslab360RuntimeData:
     coordinator: Botslab360Coordinator
     map_cache: Botslab360MapCache
     rooms: tuple[PreparedRoom, ...] = ()
+    # Robots whose room discovery returned no rooms (unsegmented map, e.g. 360 S6).
+    # They get an occupancy-grid map camera instead of the polygon room map.
+    unsegmented_devices: frozenset[str] = frozenset()
     room_jobs: RoomJobState = field(default_factory=RoomJobState)
 
 
@@ -436,10 +439,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
     )
 
     discovered_rooms: list[DiscoveredRoom] = []
+    unsegmented_devices: set[str] = set()
     try:
         for device in coordinator.devices.values():
+            device_rooms = await client.get_rooms(device)
+            if not device_rooms:
+                unsegmented_devices.add(device.id)
             discovered_rooms.extend(
-                DiscoveredRoom(device, room) for room in await client.get_rooms(device)
+                DiscoveredRoom(device, room) for room in device_rooms
             )
     except AuthenticationError as err:
         await client.close()
@@ -466,6 +473,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -
     )
 
     entry.runtime_data.rooms = prepared_rooms
+    entry.runtime_data.unsegmented_devices = frozenset(unsegmented_devices)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

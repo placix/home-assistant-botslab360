@@ -139,10 +139,8 @@ async def test_camera_authentication_error_starts_reauth(hass, mock_client) -> N
     entry.async_start_reauth.assert_called_once_with(hass)
 
 
-async def test_camera_platform_is_not_loaded_for_multiple_devices(
-    hass, mock_client
-) -> None:
-    """Test map code remains available while camera entities stay disabled."""
+async def test_no_camera_entities_for_robots_with_rooms(hass, mock_client) -> None:
+    """Robots with rooms get no camera: the polygon room map stays deferred."""
 
     second = TEST_DEVICE.__class__(
         id="second-test-device",
@@ -158,7 +156,8 @@ async def test_camera_platform_is_not_loaded_for_multiple_devices(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert Platform.CAMERA not in PLATFORMS
+    # The camera platform only creates grid-map cameras for unsegmented robots.
+    assert Platform.CAMERA in PLATFORMS
     assert Platform.BINARY_SENSOR in PLATFORMS
     assert Platform.SWITCH in PLATFORMS
     assert hass.states.get("camera.test_robot_map") is None
