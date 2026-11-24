@@ -1,5 +1,6 @@
 """Tests for the Botslab 360 coordinator and entry lifecycle."""
 
+import logging
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +18,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from httpx import ReadError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.botslab360 import (
@@ -156,19 +158,158 @@ async def test_coordinator_translates_api_error(hass, mock_client) -> None:
     coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
     mock_client.get_status.side_effect = ApiError("unavailable")
 
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(UpdateFailed) as raised:
         await coordinator._async_update_data()
 
+    assert raised.value.translation_domain == DOMAIN
+    assert raised.value.translation_key == "cannot_connect"
+    assert raised.value.__cause__ is mock_client.get_status.side_effect
 
-async def test_coordinator_translates_authentication_error(hass, mock_client) -> None:
+
+@pytest.mark.parametrize("stage", ["setup", "update"])
+@pytest.mark.parametrize("with_codes", [False, True])
+async def test_coordinator_logs_safe_api_diagnostics(
+    hass, mock_client, caplog, stage, with_codes
+) -> None:
+    """Both API failure paths retain translation and log safe optional metadata."""
+
+    coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
+    coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
+    message = (
+        "Device discovery request failed"
+        if stage == "setup"
+        else "Timed out waiting for robot status"
+    )
+    error = ApiError(
+        message,
+        phase="transport" if stage == "setup" else "timeout",
+        status_code=503 if with_codes else None,
+        errno=7 if with_codes else None,
+        response_errno=8 if with_codes else None,
+        error_code=9 if with_codes else None,
+    )
+    error.__cause__ = TimeoutError("synthetic private transport context")
+    call = mock_client.get_devices if stage == "setup" else mock_client.get_status
+    call.side_effect = error
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
+
+    with pytest.raises(UpdateFailed) as raised:
+        if stage == "setup":
+            await coordinator._async_setup()
+        else:
+            await coordinator._async_update_data()
+
+    assert raised.value.translation_domain == DOMAIN
+    assert raised.value.translation_key == "cannot_connect"
+    assert raised.value.__cause__ is error
+    call.assert_awaited_once()
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.botslab360.coordinator"
+    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record.levelno == logging.DEBUG
+    assert f"Botslab 360 {stage} failed:" in record.getMessage()
+    assert f"phase={error.phase}" in record.getMessage()
+    for key in ("status_code", "errno", "response_errno", "error_code"):
+        assert f"{key}={getattr(error, key)}" in record.getMessage()
+    assert f"message={message}" in record.getMessage()
+    assert "exception_chain=ApiError -> TimeoutError" in record.getMessage()
+    assert "synthetic private transport context" not in caplog.text
+    assert record.exc_info is None
+
+
+@pytest.mark.parametrize("stage", ["setup", "update"])
+async def test_coordinator_diagnostics_do_not_log_secrets(
+    hass, mock_client, caplog, stage
+) -> None:
+    """Arbitrary text, cause text, request details and malformed codes stay private."""
+
+    secrets = (
+        "synthetic-private-q",
+        "synthetic-private-t",
+        "synthetic-private-qid",
+        "synthetic-private-sid",
+        "synthetic-private-push-key",
+        "synthetic-private-password",
+        "private-user@example.invalid",
+        "synthetic-private-cookie",
+        "synthetic-private-authorization",
+    )
+    private_text = " ".join(secrets)
+    error = ApiError(private_text, phase=private_text)
+    for key in ("status_code", "errno", "response_errno", "error_code"):
+        setattr(error, key, private_text)
+    error.__cause__ = ReadError(private_text)
+    # Cyclic chains must neither hang diagnostics nor expose their text.
+    error.__cause__.__context__ = error
+    coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
+    coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
+    call = mock_client.get_devices if stage == "setup" else mock_client.get_status
+    call.side_effect = error
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
+
+    with pytest.raises(UpdateFailed):
+        if stage == "setup":
+            await coordinator._async_setup()
+        else:
+            await coordinator._async_update_data()
+
+    assert "message=[redacted]" in caplog.text
+    assert "phase=unknown" in caplog.text
+    assert "exception_chain=ApiError -> ReadError" in caplog.text
+    assert (
+        "status_code=None errno=None response_errno=None error_code=None" in caplog.text
+    )
+    for secret in (*secrets, TEST_DEVICE.id, *TEST_CREDENTIALS.values()):
+        assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("stage", ["setup", "update"])
+async def test_coordinator_diagnostics_require_debug(
+    hass, mock_client, caplog, stage
+) -> None:
+    """The extra diagnostics never appear at normal logging levels."""
+
+    coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
+    coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
+    call = mock_client.get_devices if stage == "setup" else mock_client.get_status
+    call.side_effect = ApiError("Push connection failed", phase="transport")
+    caplog.set_level(logging.INFO, logger="custom_components.botslab360.coordinator")
+
+    with pytest.raises(UpdateFailed):
+        if stage == "setup":
+            await coordinator._async_setup()
+        else:
+            await coordinator._async_update_data()
+
+    assert "Botslab 360" not in caplog.text
+
+
+@pytest.mark.parametrize("stage", ["setup", "update"])
+async def test_coordinator_translates_authentication_error(
+    hass, mock_client, caplog, stage
+) -> None:
     """Test an authentication error triggers Home Assistant reauth."""
 
     coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
     coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
-    mock_client.get_status.side_effect = AuthenticationError("expired")
+    call = mock_client.get_devices if stage == "setup" else mock_client.get_status
+    call.side_effect = AuthenticationError("expired")
+    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
 
-    with pytest.raises(ConfigEntryAuthFailed):
-        await coordinator._async_update_data()
+    with pytest.raises(ConfigEntryAuthFailed) as raised:
+        if stage == "setup":
+            await coordinator._async_setup()
+        else:
+            await coordinator._async_update_data()
+
+    assert raised.value.translation_key == "invalid_auth"
+    assert raised.value.__cause__ is call.side_effect
+    assert "Botslab 360 setup failed" not in caplog.text
+    assert "Botslab 360 update failed" not in caplog.text
 
 
 async def test_entry_runtime_data_and_unload(hass, mock_client) -> None:
