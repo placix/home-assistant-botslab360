@@ -32,6 +32,8 @@ PLATFORMS = (
     Platform.CAMERA,
 )
 UPDATE_INTERVAL = timedelta(seconds=60)
+# Experimental overall budget for one robot status request and library recovery.
+STATUS_TOTAL_TIMEOUT = 125.0
 
 CONF_CLEAN_TIMES = "clean_times"
 CONF_FAN_MODE = "fan_mode"

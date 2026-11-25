@@ -191,7 +191,7 @@ async def test_press_cleans_exactly_the_associated_room(hass, mock_client) -> No
             )
         },
     )
-    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id)
+    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id, total_timeout=125.0)
 
 
 async def test_ignored_room_has_no_entities_or_active_child_device(

@@ -184,7 +184,7 @@ async def test_camera_created_only_for_robots_with_a_grid(hass, mock_client) -> 
     mock_client.get_rooms.side_effect = lambda device: (
         TEST_ROOMS if device.id == TEST_DEVICE.id else []
     )
-    mock_client.get_status.side_effect = lambda device_id: replace(
+    mock_client.get_status.side_effect = lambda device_id, **_kwargs: replace(
         make_status(), device_id=device_id
     )
 

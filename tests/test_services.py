@@ -53,7 +53,7 @@ async def test_clean_rooms_action_forwards_selected_ids(
         room_ids,
         room_settings=None,
     )
-    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id)
+    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id, total_timeout=125.0)
 
 
 async def test_clean_rooms_action_forwards_confirmed_room_settings(

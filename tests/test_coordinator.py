@@ -1,9 +1,11 @@
 """Tests for the Botslab 360 coordinator and entry lifecycle."""
 
+import asyncio
 import logging
-from asyncio import CancelledError
+from asyncio import CancelledError, Event
+from dataclasses import replace
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from botslab360 import (
@@ -15,12 +17,17 @@ from botslab360 import (
     QihooCredentials,
 )
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
 from httpx import ReadError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.botslab360 import (
     Botslab360RuntimeData,
@@ -72,9 +79,121 @@ async def test_coordinator_updates_all_discovered_devices(hass, mock_client) -> 
     mock_client.get_devices.assert_awaited_once()
     assert set(coordinator.devices) == {TEST_DEVICE.id, second_device.id}
     assert set(coordinator.data) == {TEST_DEVICE.id, second_device.id}
-    assert mock_client.get_status.await_args_list[0].args == (TEST_DEVICE.id,)
-    assert mock_client.get_status.await_args_list[1].args == (second_device.id,)
+    assert mock_client.get_status.await_args_list == [
+        call(TEST_DEVICE.id, total_timeout=125.0),
+        call(second_device.id, total_timeout=125.0),
+    ]
     mock_client.get_rooms.assert_not_awaited()
+
+
+async def test_status_refresh_preserves_availability_until_final_outcome(
+    hass, mock_client, caplog
+) -> None:
+    """Publish final results only, then recover on a later coordinator update."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data.coordinator
+    entity_id = "sensor.test_robot_battery"
+    original = coordinator.data[TEST_DEVICE.id]
+    entered = Event()
+    finish = Event()
+    recovered = replace(make_status(), battery=71)
+
+    async def recovering(device_id, *, total_timeout):
+        assert (device_id, total_timeout) == (TEST_DEVICE.id, 125.0)
+        entered.set()
+        await finish.wait()
+        return recovered
+
+    mock_client.get_status.reset_mock()
+    mock_client.get_status.side_effect = recovering
+    refresh = asyncio.create_task(coordinator.async_request_refresh())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        assert coordinator.last_update_success
+        assert coordinator.data[TEST_DEVICE.id] is original
+        assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+    finally:
+        finish.set()
+        await refresh
+    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id, total_timeout=125.0)
+    assert coordinator.data[TEST_DEVICE.id] is recovered
+    assert hass.states.get(entity_id).state == "71"
+
+    exhausted = ApiError(
+        "Status retrieval exceeded its total time budget", phase="timeout"
+    )
+    mock_client.get_status.reset_mock()
+    mock_client.get_status.side_effect = exhausted
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
+    await coordinator.async_refresh()
+    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id, total_timeout=125.0)
+    assert not coordinator.last_update_success
+    assert coordinator.data[TEST_DEVICE.id] is recovered
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+    assert "message=Status retrieval exceeded its total time budget" in caplog.text
+
+    latest = replace(make_status(), battery=68)
+    mock_client.get_status.side_effect = None
+    mock_client.get_status.return_value = latest
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data[TEST_DEVICE.id] is latest
+    assert hass.states.get(entity_id).state == "68"
+
+
+async def test_unload_cancels_scheduled_status_refresh(hass, mock_client) -> None:
+    """A scheduled poll belongs to the config entry and is cancelled on unload."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entered = Event()
+    cleaned = Event()
+
+    async def blocked(device_id, *, total_timeout):
+        assert (device_id, total_timeout) == (TEST_DEVICE.id, 125.0)
+        entered.set()
+        try:
+            await Event().wait()
+        finally:
+            cleaned.set()
+
+    mock_client.get_status.reset_mock()
+    mock_client.get_status.side_effect = blocked
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        manual = asyncio.create_task(
+            entry.runtime_data.coordinator.async_request_refresh()
+        )
+        await asyncio.sleep(0)
+        mock_client.get_status.assert_awaited_once()
+    finally:
+        assert await hass.config_entries.async_unload(entry.entry_id)
+    await manual
+    assert cleaned.is_set()
+    mock_client.get_status.assert_awaited_once()
+
+
+async def test_runtime_status_auth_failure_starts_reauth(hass, mock_client) -> None:
+    """A status authentication failure triggers HA reauth through the coordinator."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data.coordinator
+    mock_client.get_status.reset_mock()
+    mock_client.get_status.side_effect = AuthenticationError("expired")
+
+    with patch.object(entry, "async_start_reauth") as start_reauth:
+        await coordinator.async_refresh()
+
+    start_reauth.assert_called_once_with(hass, None, None)
+    assert not coordinator.last_update_success
+    mock_client.get_status.assert_awaited_once_with(TEST_DEVICE.id, total_timeout=125.0)
 
 
 def test_legacy_entry_uses_q_t_client_constructor(hass) -> None:

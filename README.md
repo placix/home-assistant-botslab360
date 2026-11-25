@@ -194,8 +194,8 @@ successful authentication.
 
 All device and protocol communication is delegated to the separately released
 [`python-botslab360`](https://github.com/placix/python-botslab360) library. The
-integration currently pins `botslab360==0.7.5` and exposes the library through
-Home Assistant-native entities, actions, config flows, and diagnostics.
+integration pins the library version declared in the manifest and exposes it
+through Home Assistant-native entities, actions, config flows, and diagnostics.
 
 The vendor `SweepArea.mode` field is deliberately not exposed as a cleaning
 mode: Android app analysis identifies it as a nullable carpet-related value,
@@ -215,6 +215,27 @@ not a verified room sweep/mop selector.
   Vacuum Map Card support and additional map features are deferred.
 - Network discovery never guesses a robot association when MAC verification is
   unavailable or ambiguous.
+
+## Status recovery diagnostics
+
+The 0.6.9-beta.3 trial allows the library up to 125 seconds per robot status
+request, including at most one additional attempt. The normal polling interval
+is still 60 seconds after a refresh finishes. Robots are polled in sequence,
+so a slow request can delay updates for other robots on the same entry.
+
+For this trial, enable the dedicated coordinator diagnostics and the library
+retry messages in Home Assistant:
+
+```yaml
+logger:
+  logs:
+    custom_components.botslab360.diagnostics: debug
+    botslab360.client: debug
+```
+
+Keep DEBUG overrides off for the parent integration logger and the coordinator
+logger to avoid Home Assistant's full coordinator tracebacks. The library logs
+retry decisions and recovery. The coordinator logs final failures.
 
 ## Development
 

@@ -36,7 +36,7 @@ async def test_no_room_robot_can_finish_flow_and_load(
     mock_client.get_rooms.side_effect = lambda device: (
         [] if device.id == TEST_DEVICE.id else TEST_ROOMS
     )
-    mock_client.get_status.side_effect = lambda device_id: replace(
+    mock_client.get_status.side_effect = lambda device_id, **_kwargs: replace(
         make_status(), device_id=device_id
     )
 

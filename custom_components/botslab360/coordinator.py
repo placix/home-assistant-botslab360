@@ -17,7 +17,7 @@ from botslab360 import (
     RobotStatus,
 )
 
-from .const import DOMAIN, UPDATE_INTERVAL
+from .const import DOMAIN, STATUS_TOTAL_TIMEOUT, UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 _DIAGNOSTIC_LOGGER = logging.getLogger(f"custom_components.{DOMAIN}.diagnostics")
@@ -27,6 +27,7 @@ _DIAGNOSTIC_LOGGER = logging.getLogger(f"custom_components.{DOMAIN}.diagnostics"
 _SAFE_ERROR_MESSAGES = (
     {
         "Timed out waiting for robot status",
+        "Status retrieval exceeded its total time budget",
         "Timed out waiting for push registration",
         "Push connection failed",
         "Push connection closed",
@@ -207,7 +208,9 @@ class Botslab360Coordinator(DataUpdateCoordinator[dict[str, RobotStatus]]):
 
         try:
             return {
-                device_id: await self.client.get_status(device_id)
+                device_id: await self.client.get_status(
+                    device_id, total_timeout=STATUS_TOTAL_TIMEOUT
+                )
                 for device_id in self.devices
             }
         except AuthenticationError as err:

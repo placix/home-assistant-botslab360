@@ -314,7 +314,7 @@ async def test_selections_are_isolated_between_robots(hass, mock_client) -> None
 
     second_device = replace(TEST_DEVICE, id="second-test-device", name="Second Robot")
     mock_client.get_devices.return_value = [TEST_DEVICE, second_device]
-    mock_client.get_status.side_effect = lambda _device_id: make_status()
+    mock_client.get_status.side_effect = lambda _device_id, **_kwargs: make_status()
     mock_client.get_rooms.side_effect = [[TEST_ROOMS[0]], [TEST_ROOMS[0]]]
     await _setup_entry(hass)
     first = _job_switch(hass, 1)
