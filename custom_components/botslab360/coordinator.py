@@ -20,6 +20,7 @@ from botslab360 import (
 from .const import DOMAIN, UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
+_DIAGNOSTIC_LOGGER = logging.getLogger(f"custom_components.{DOMAIN}.diagnostics")
 
 # Only fixed messages from botslab360 0.7.5 may be logged. Exception causes can
 # contain request URLs, credentials or response bodies; never log raw tracebacks.
@@ -117,7 +118,7 @@ _SAFE_ERROR_PHASES = {
 def _log_api_error(stage: str, error: ApiError) -> None:
     """Describe a failure without exposing arbitrary exception text or context."""
 
-    if not _LOGGER.isEnabledFor(logging.DEBUG):
+    if not _DIAGNOSTIC_LOGGER.isEnabledFor(logging.DEBUG):
         return
     message = error.args[0] if len(error.args) == 1 else None
     safe_message = (
@@ -147,7 +148,7 @@ def _log_api_error(stage: str, error: ApiError) -> None:
         current = current.__cause__ or (
             None if current.__suppress_context__ else current.__context__
         )
-    _LOGGER.debug(
+    _DIAGNOSTIC_LOGGER.debug(
         "Botslab 360 %s failed: phase=%s status_code=%s errno=%s "
         "response_errno=%s error_code=%s message=%s exception_chain=%s",
         stage,

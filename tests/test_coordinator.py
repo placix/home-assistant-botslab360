@@ -1,6 +1,7 @@
 """Tests for the Botslab 360 coordinator and entry lifecycle."""
 
 import logging
+from asyncio import CancelledError
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -41,6 +42,9 @@ from .conftest import (
     make_mock_client,
     make_status,
 )
+
+COORDINATOR_LOGGER = "custom_components.botslab360.coordinator"
+DIAGNOSTIC_LOGGER = "custom_components.botslab360.diagnostics"
 
 
 def _entry() -> MockConfigEntry:
@@ -188,10 +192,12 @@ async def test_coordinator_logs_safe_api_diagnostics(
         response_errno=8 if with_codes else None,
         error_code=9 if with_codes else None,
     )
-    error.__cause__ = TimeoutError("synthetic private transport context")
+    timeout = TimeoutError("synthetic private transport context")
+    timeout.__cause__ = CancelledError("synthetic private cancellation context")
+    error.__cause__ = timeout
     call = mock_client.get_devices if stage == "setup" else mock_client.get_status
     call.side_effect = error
-    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
 
     with pytest.raises(UpdateFailed) as raised:
         if stage == "setup":
@@ -203,11 +209,7 @@ async def test_coordinator_logs_safe_api_diagnostics(
     assert raised.value.translation_key == "cannot_connect"
     assert raised.value.__cause__ is error
     call.assert_awaited_once()
-    records = [
-        record
-        for record in caplog.records
-        if record.name == "custom_components.botslab360.coordinator"
-    ]
+    records = [record for record in caplog.records if record.name == DIAGNOSTIC_LOGGER]
     assert len(records) == 1
     record = records[0]
     assert record.levelno == logging.DEBUG
@@ -216,8 +218,12 @@ async def test_coordinator_logs_safe_api_diagnostics(
     for key in ("status_code", "errno", "response_errno", "error_code"):
         assert f"{key}={getattr(error, key)}" in record.getMessage()
     assert f"message={message}" in record.getMessage()
-    assert "exception_chain=ApiError -> TimeoutError" in record.getMessage()
+    assert (
+        "exception_chain=ApiError -> TimeoutError -> CancelledError"
+        in record.getMessage()
+    )
     assert "synthetic private transport context" not in caplog.text
+    assert "synthetic private cancellation context" not in caplog.text
     assert record.exc_info is None
 
 
@@ -249,7 +255,7 @@ async def test_coordinator_diagnostics_do_not_log_secrets(
     coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
     call = mock_client.get_devices if stage == "setup" else mock_client.get_status
     call.side_effect = error
-    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
 
     with pytest.raises(UpdateFailed):
         if stage == "setup":
@@ -268,16 +274,17 @@ async def test_coordinator_diagnostics_do_not_log_secrets(
 
 
 @pytest.mark.parametrize("stage", ["setup", "update"])
-async def test_coordinator_diagnostics_require_debug(
+async def test_coordinator_debug_does_not_enable_safe_diagnostics(
     hass, mock_client, caplog, stage
 ) -> None:
-    """The extra diagnostics never appear at normal logging levels."""
+    """Debugging the coordinator alone does not enable the separate diagnostics."""
 
     coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
     coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
     call = mock_client.get_devices if stage == "setup" else mock_client.get_status
     call.side_effect = ApiError("Push connection failed", phase="transport")
-    caplog.set_level(logging.INFO, logger="custom_components.botslab360.coordinator")
+    caplog.set_level(logging.DEBUG, logger=COORDINATOR_LOGGER)
+    caplog.set_level(logging.WARNING, logger=DIAGNOSTIC_LOGGER)
 
     with pytest.raises(UpdateFailed):
         if stage == "setup":
@@ -286,6 +293,37 @@ async def test_coordinator_diagnostics_require_debug(
             await coordinator._async_update_data()
 
     assert "Botslab 360" not in caplog.text
+
+
+async def test_diagnostics_debug_keeps_home_assistant_traceback_disabled(
+    hass, mock_client, caplog
+) -> None:
+    """Safe diagnostics alone preserve the normal HA error without its traceback."""
+
+    coordinator = Botslab360Coordinator(hass, _entry(), mock_client)
+    coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
+    error = ApiError("Timed out waiting for push registration", phase="timeout")
+    error.__cause__ = TimeoutError("synthetic private transport context")
+    mock_client.get_status.side_effect = error
+    caplog.set_level(logging.WARNING, logger=COORDINATOR_LOGGER)
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
+
+    await coordinator.async_refresh()
+
+    assert not coordinator.last_update_success
+    assert any(
+        record.name == COORDINATOR_LOGGER
+        and "Error fetching botslab360 data" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        record.name == DIAGNOSTIC_LOGGER
+        and "message=Timed out waiting for push registration" in record.getMessage()
+        for record in caplog.records
+    )
+    assert "Full error:" not in caplog.text
+    assert "synthetic private transport context" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 @pytest.mark.parametrize("stage", ["setup", "update"])
@@ -298,7 +336,7 @@ async def test_coordinator_translates_authentication_error(
     coordinator.devices = {TEST_DEVICE.id: TEST_DEVICE}
     call = mock_client.get_devices if stage == "setup" else mock_client.get_status
     call.side_effect = AuthenticationError("expired")
-    caplog.set_level(logging.DEBUG, logger="custom_components.botslab360.coordinator")
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
 
     with pytest.raises(ConfigEntryAuthFailed) as raised:
         if stage == "setup":
