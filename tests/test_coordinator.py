@@ -469,6 +469,22 @@ async def test_coordinator_translates_authentication_error(
     assert "Botslab 360 update failed" not in caplog.text
 
 
+async def test_entry_debug_reports_installed_library_version(
+    hass, mock_client, caplog
+) -> None:
+    """Report the installed distribution rather than the manifest pin."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    caplog.set_level(logging.DEBUG, logger=DIAGNOSTIC_LOGGER)
+    with patch(
+        "custom_components.botslab360.distribution_version", return_value="0.7.6b99"
+    ) as read_version:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+
+    read_version.assert_called_once_with("botslab360")
+    assert "Loaded botslab360 library version 0.7.6b99" in caplog.text
+
+
 async def test_entry_runtime_data_and_unload(hass, mock_client) -> None:
     """Test the client and coordinator live on entry.runtime_data."""
 

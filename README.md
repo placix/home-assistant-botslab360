@@ -218,10 +218,12 @@ not a verified room sweep/mop selector.
 
 ## Status recovery diagnostics
 
-The 0.6.9-beta.3 trial allows the library up to 125 seconds per robot status
-request, including at most one additional attempt. The normal polling interval
-is still 60 seconds after a refresh finishes. Robots are polled in sequence,
-so a slow request can delay updates for other robots on the same entry.
+The recovery trial allows the library up to 125 seconds per robot status
+request. Registration recovery uses a short backoff and can make a final
+attempt if the first retry closes during registration and enough time remains.
+The regular polling interval remains 60 seconds after a refresh finishes.
+Robots are polled in sequence, so a slow request can delay updates for other
+robots on the same entry.
 
 For this trial, enable the dedicated coordinator diagnostics and the library
 retry messages in Home Assistant:
@@ -231,11 +233,13 @@ logger:
   logs:
     custom_components.botslab360.diagnostics: debug
     botslab360.client: debug
+    botslab360.protocol: debug
 ```
 
 Keep DEBUG overrides off for the parent integration logger and the coordinator
 logger to avoid Home Assistant's full coordinator tracebacks. The library logs
-retry decisions and recovery. The coordinator logs final failures.
+retry decisions, recovery, and push cleanup. At entry setup the integration
+logs the installed library version. The coordinator logs final failures.
 
 ## Development
 

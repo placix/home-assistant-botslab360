@@ -6,6 +6,8 @@ import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -49,6 +51,7 @@ from .room_preferences import remove_legacy_cleaning_mode_preferences
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
+_DIAGNOSTIC_LOGGER = logging.getLogger(f"custom_components.{DOMAIN}.diagnostics")
 
 
 @dataclass(slots=True)
@@ -410,6 +413,17 @@ async def async_initialize_entry_client[T](
 
 async def async_setup_entry(hass: HomeAssistant, entry: Botslab360ConfigEntry) -> bool:
     """Set up Botslab 360 from a config entry."""
+
+    if _DIAGNOSTIC_LOGGER.isEnabledFor(logging.DEBUG):
+        try:
+            library_version = await hass.async_add_executor_job(
+                distribution_version, DOMAIN
+            )
+        except PackageNotFoundError:
+            library_version = "unknown"
+        _DIAGNOSTIC_LOGGER.debug(
+            "Loaded botslab360 library version %s", library_version
+        )
 
     client = take_authenticated_client(hass, entry.unique_id)
     authenticated_network_macs = take_authenticated_network_macs(hass, entry.unique_id)
