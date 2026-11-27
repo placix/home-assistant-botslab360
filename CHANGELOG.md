@@ -1,4 +1,21 @@
-# Botslab 360 for Home Assistant 0.6.9-beta.4
+# Changelog
+
+## 0.6.9-beta.5
+
+This prerelease tests extended network and HTTP status recovery.
+
+- Update the dependency to exactly `botslab360==0.7.6b3`.
+- Recover from selected socket and temporary DNS failures and HTTP
+  502/503/504 within the existing 125-second per-robot status budget.
+  HTTP 429 requires a valid Retry-After that fits the remaining budget to retry.
+- During a valid Retry-After cooldown from HTTP 429 or 503, later status
+  polls for the same client fail locally without push or HTTP traffic.
+- Keep the 60-second polling interval and existing coordinator behaviour.
+  Robot control commands receive no additional retries.
+- The dedicated DEBUG loggers document transport causes and retry decisions.
+  Real-world validation of the new backoffs is still pending.
+
+## 0.6.9-beta.4
 
 This prerelease is intended for testing recovery from intermittent push
 registration failures during status polling.

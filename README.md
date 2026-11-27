@@ -219,8 +219,11 @@ not a verified room sweep/mop selector.
 ## Status recovery diagnostics
 
 The recovery trial allows the library up to 125 seconds per robot status
-request. Registration recovery uses a short backoff and can make a final
-attempt if the first retry closes during registration and enough time remains.
+request. The library can retry selected transient network, registration and
+HTTP failures within that budget, with at most three status attempts total.
+A valid Retry-After cooldown from HTTP 429 or 503 also applies to later
+status polls on the same client. During the cooldown those polls return
+an error without starting a network request.
 The regular polling interval remains 60 seconds after a refresh finishes.
 Robots are polled in sequence, so a slow request can delay updates for other
 robots on the same entry.
